@@ -1,0 +1,7 @@
+apiVersion: "sde.dev/v1alpha1"
+kind: customcluster
+metadata:
+  name: crd_hw
+spec:
+  message: "Trying to create my own custom resource"
+  count: 5
