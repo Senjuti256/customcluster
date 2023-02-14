@@ -24,7 +24,7 @@ spec:
                   type: integer
                 message:
                   type: string
-  # either Namespaced or Cluster
+  # either Namespaced or ClusterIP
   scope: Namespaced
   names:
     # plural name to be used in the URL: /apis/<group>/<version>/<plural>
