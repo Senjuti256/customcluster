@@ -1,6 +1,7 @@
-package main
+package controller
 
 import (
+	"context"
 	"fmt"
 	//"os"
 	//"os/signal"
@@ -22,18 +23,19 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/util/workqueue"
 
+	V1alpha1 "github.com/Senjuti256/customcluster/pkg/apis/sde.dev/v1alpha1"
 	clientset "github.com/Senjuti256/customcluster/pkg/client/clientset/versioned"
 	informers "github.com/Senjuti256/customcluster/pkg/client/informers/externalversions"
-	//v1alpha1 "github.com/Senjuti256/customcluster/pkg/apis/sde.dev/v1alpha1"
 )
 
-const controllerAgentName = "customcontroller"
+const controllerAgentName = "controller"
 
 type controller struct {
     kubeClientset     kubernetes.Interface
     customClientset   clientset.Interface
     customInformer    cache.SharedIndexInformer
     workqueue         workqueue.RateLimitingInterface
+    informer          cache.Controller
 }
 
 func newController(kubeconfig string, resyncPeriod time.Duration) (*controller, error) {
@@ -116,7 +118,10 @@ func (c *controller) syncHandler(key string) error {
         return fmt.Errorf("failed to split key into namespace and name: %v", err)
     }
 
-    custom, err := c.customClientset.controller().CustomClusters(namespace).Get(name, metav1.GetOptions{})            //*
+    custom, err := c.customClientset.controller().CustomClusters(namespace).Get(name, metav1.GetOptions{            //*
+    	TypeMeta:        metav1.TypeMeta{},
+    	ResourceVersion: "",
+    })            
     if err != nil {
         if errors.IsNotFound(err) {
             glog.Infof("CustomCluster %s/%s has been deleted", namespace, name)
@@ -130,7 +135,18 @@ func (c *controller) syncHandler(key string) error {
 
     labelSelector := fmt.Sprintf("customcluster=%s", name)
 
-    pods, err := c.kubeClientset.CoreV1().Pods(namespace).List(metav1.ListOptions{LabelSelector: labelSelector})             //*
+    pods, err := c.kubeClientset.CoreV1().Pods(namespace).List(context.TODO(),metav1.ListOptions{
+    	TypeMeta:             metav1.TypeMeta{},
+    	LabelSelector:        labelSelector,
+    	FieldSelector:        "",
+    	Watch:                false,
+    	AllowWatchBookmarks:  false,
+    	ResourceVersion:      "",
+    	ResourceVersionMatch: "",
+    	TimeoutSeconds:       new(int64),
+    	Limit:                0,
+    	Continue:             "",
+    })             
     if err != nil {
         return fmt.Errorf("failed to list pods: %v", err)
     }
@@ -176,12 +192,7 @@ func (c *controller) createPod(namespace, podName, message string) error {
         },
     }
 
-    _, err := c.kubeClientset.CoreV1().Pods(namespace).Create(pod,metav1.CreateOptions{
-    	TypeMeta:        metav1.TypeMeta{},
-    	DryRun:          []string{},
-    	FieldManager:    "",
-    	FieldValidation: "",
-    })                                                 //*
+    _, err := c.kubeClientset.CoreV1().Pods(namespace).Create(context.TODO(),pod,metav1.CreateOptions{})                                                 //*
     if err != nil {
         return err
     }
@@ -190,7 +201,7 @@ func (c *controller) createPod(namespace, podName, message string) error {
 }
 
 func (c *controller) deletePod(pod *v1.Pod) error {
-    err := c.kubeClientset.CoreV1().Pods(pod.Namespace).Delete(pod.Name, &metav1.DeleteOptions{})   //*
+    err := c.kubeClientset.CoreV1().Pods(pod.Namespace).Delete(context.TODO(),pod.Name,metav1.DeleteOptions{})   //*
     if err != nil && !errors.IsNotFound(err) {
     return err
     }
@@ -211,8 +222,8 @@ func (c *controller) handleAdd(obj interface{}) {
 }
 
 func (c *controller) handleUpdate(oldObj, newObj interface{}) {
-    oldCustom := oldObj.(*v1alpha1.CustomCluster)                         //*
-    newCustom := newObj.(*v1alpha1.CustomCluster)                         //*
+    oldCustom := oldObj.(*V1alpha1.Customcluster)                         
+    newCustom := newObj.(*V1alpha1.Customcluster)                         
     if oldCustom.ResourceVersion == newCustom.ResourceVersion {
         // Periodic resync will send update events for all known CustomClusters.
         // Two different versions of the same CustomCluster will always have different RVs.
@@ -235,7 +246,7 @@ func (c *controller) run(stopCh <-chan struct{}) {
 
     glog.Info("Starting CustomCluster controller")
 
-    if !cache.WaitForCacheSync(stopCh, c.informer.HasSynced) {                    //*
+    if !cache.WaitForCacheSync(stopCh, c.customInformer.HasSynced) {                      //*
         runtime.HandleError(fmt.Errorf("timed out waiting for caches to sync"))
         return
     }
