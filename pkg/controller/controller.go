@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"fmt"
+
 	//"os"
 	//"os/signal"
 	//"syscall"
@@ -12,6 +13,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/klog/v2"
 
 	//"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/runtime"
@@ -21,6 +23,7 @@ import (
 	//"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/workqueue"
 
 	V1alpha1 "github.com/Senjuti256/customcluster/pkg/apis/sde.dev/v1alpha1"
@@ -36,6 +39,7 @@ type controller struct {
     customInformer    cache.SharedIndexInformer
     workqueue         workqueue.RateLimitingInterface
     informer          cache.Controller
+    recorder          record.EventRecorder
 }
 
 func newController(kubeconfig string, resyncPeriod time.Duration) (*controller, error) {
@@ -58,12 +62,16 @@ func newController(kubeconfig string, resyncPeriod time.Duration) (*controller, 
     customInformer := customInformerFactory.Samplecontroller().V1alpha1().Customclusters().Informer()
     workqueue := workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "CustomClusters")
 
+    
     controller := &controller{
     	kubeClientset:   kubeClientset,
     	customClientset: customClientset,
     	customInformer:  customInformer,
     	workqueue:       workqueue,
+        //recorder:          recorder,
     }
+
+    klog.Info("Setting up event handlers")
 
     customInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
         AddFunc:    controller.handleAdd,
@@ -74,19 +82,35 @@ func newController(kubeconfig string, resyncPeriod time.Duration) (*controller, 
     return controller, nil
 }
 
+// Run will set up the event handlers for types we are interested in, as well
+// as syncing informer caches and starting workers. It will block until stopCh
+// is closed, at which point it will shutdown the workqueue and wait for
+// workers to finish processing their current work items.
+
 func (c *controller) Run(stopCh <-chan struct{}) {
     defer c.workqueue.ShutDown()
-
-    go c.customInformer.Run(stopCh)
-
+    
+    // Start the informer factories to begin populating the informer caches
+	klog.Info("Starting the customcluster controller")
+    
+    // Wait for the caches to be synced before starting workers
     if !cache.WaitForCacheSync(stopCh, c.customInformer.HasSynced) {
         runtime.HandleError(fmt.Errorf("timed out waiting for caches to sync"))
         return
     }
+    go c.customInformer.Run(stopCh)
 
+    // Launch the goroutine for workers to process the CR
+	klog.Info("Starting workers")
     go c.runWorker()
+    
+    go wait.Until(c.runWorker, time.Second, stopCh)
+	klog.Info("Started workers")
 
     <-stopCh
+    
+    klog.Info("Shutting down the worker")
+
 }
 
 func (c *controller) runWorker() {
@@ -95,16 +119,23 @@ func (c *controller) runWorker() {
 }
 
 func (c *controller) processNextItem() bool {
-    key, quit := c.workqueue.Get()
+    item, quit := c.workqueue.Get()
     if quit {
         return false
     }
-    defer c.workqueue.Done(key)
+    defer c.workqueue.Done(item)
 
-    err := c.syncHandler(key.(string))
-    if err != nil {
-        c.workqueue.AddRateLimited(key)
-        runtime.HandleError(fmt.Errorf("failed to process item with key %q: %v", key, err))
+	key, err := cache.MetaNamespaceKeyFunc(item)
+	if err != nil {
+		klog.Errorf("error while calling Namespace Key func on cache for item %s: %s", key, err.Error())
+		return false
+	}
+
+
+    error := c.syncHandler(item.(string))
+    if error != nil {
+        c.workqueue.AddRateLimited(item)
+        runtime.HandleError(fmt.Errorf("failed to process item with key %q: %v", item, error))
         return true
     }
 
@@ -117,7 +148,8 @@ func (c *controller) syncHandler(key string) error {
     if err != nil {
         return fmt.Errorf("failed to split key into namespace and name: %v", err)
     }
-
+    
+    //filterout if pods are available or not
     custom, err := c.customClientset.controller().CustomClusters(namespace).Get(name, metav1.GetOptions{            //*
     	TypeMeta:        metav1.TypeMeta{},
     	ResourceVersion: "",
@@ -192,7 +224,7 @@ func (c *controller) createPod(namespace, podName, message string) error {
         },
     }
 
-    _, err := c.kubeClientset.CoreV1().Pods(namespace).Create(context.TODO(),pod,metav1.CreateOptions{})                                                 //*
+    _, err := c.kubeClientset.CoreV1().Pods(namespace).Create(context.TODO(),pod,metav1.CreateOptions{})                                                 
     if err != nil {
         return err
     }
@@ -201,7 +233,7 @@ func (c *controller) createPod(namespace, podName, message string) error {
 }
 
 func (c *controller) deletePod(pod *v1.Pod) error {
-    err := c.kubeClientset.CoreV1().Pods(pod.Namespace).Delete(context.TODO(),pod.Name,metav1.DeleteOptions{})   //*
+    err := c.kubeClientset.CoreV1().Pods(pod.Namespace).Delete(context.TODO(),pod.Name,metav1.DeleteOptions{})   
     if err != nil && !errors.IsNotFound(err) {
     return err
     }
@@ -224,7 +256,7 @@ func (c *controller) handleAdd(obj interface{}) {
 func (c *controller) handleUpdate(oldObj, newObj interface{}) {
     oldCustom := oldObj.(*V1alpha1.Customcluster)                         
     newCustom := newObj.(*V1alpha1.Customcluster)                         
-    if oldCustom.ResourceVersion == newCustom.ResourceVersion {
+    if oldCustom.ResourceVersion== newCustom.ResourceVersion {
         // Periodic resync will send update events for all known CustomClusters.
         // Two different versions of the same CustomCluster will always have different RVs.
         return
@@ -239,20 +271,4 @@ func (c *controller) handleDelete(obj interface{}) {
         return
     }
     c.workqueue.Add(key)
-}
-
-func (c *controller) run(stopCh <-chan struct{}) {
-    defer c.workqueue.ShutDown()
-
-    glog.Info("Starting CustomCluster controller")
-
-    if !cache.WaitForCacheSync(stopCh, c.customInformer.HasSynced) {                      //*
-        runtime.HandleError(fmt.Errorf("timed out waiting for caches to sync"))
-        return
-    }
-
-    glog.Info("CustomCluster controller synced and ready")
-
-    // infinite loop until stopCh is closed
-    wait.Until(c.runWorker, time.Second, stopCh)
 }

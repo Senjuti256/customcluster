@@ -36,4 +36,4 @@ spec:
     listKind: customclusterList
     # shortNames allow shorter string to match your resource on the CLI
     shortNames:
-    - cc
+    - cpod
