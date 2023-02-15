@@ -12,8 +12,8 @@ import (
 	"k8s.io/client-go/util/homedir"
 
 	klient "github.com/Senjuti256/customcluster/pkg/client/clientset/versioned"
-	kInfFac "github.com/Senjuti256/customcluster/pkg/client/informers/externalversions"
-	"github.com/Senjuti256/customcluster/pkg/controller"
+	kInfFac"github.com/Senjuti256/customcluster/pkg/client/informers/externalversions"
+	//"github.com/Senjuti256/customcluster/pkg/controller"
 )
 
 func main() {
@@ -40,14 +40,15 @@ func main() {
 		log.Printf("getting klient set %s\n", err.Error())
 	}
 
-	client, err := kubernetes.NewForConfig(config)
+	kubeclient, err := kubernetes.NewForConfig(config)
 	if err != nil {
 		log.Printf("getting std client %s\n", err.Error())
 	}
-
-	infoFactory := kInfFac.NewSharedInformerFactory(klientset, 10*time.Minute)
+    
+	infoFactory:= kInfFac.NewSharedInformerFactory(klientset, 10*time.Minute)
 	ch := make(chan struct{})
-	c := controller.NewController(client, klientset, infoFactory.Sde().V1alpha1().Customclusters())
+	c:= controller.NewController(kubeclient, klientset, infoFactory.Samplecontroller().V1alpha1().Customclusters())
+
 
 	infoFactory.Start(ch)
 	if err := c.Run(ch); err != nil {
