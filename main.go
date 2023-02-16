@@ -47,7 +47,7 @@ func main() {
     
 	infoFactory:= kInfFac.NewSharedInformerFactory(klientset, 10*time.Minute)
 	ch := make(chan struct{})
-	c:= controller.NewController(kubeclient, klientset, infoFactory.Samplecontroller().V1alpha1().Customclusters())             //*
+	c:= klientset.controller.NewController(kubeclient, klientset, infoFactory.Samplecontroller().V1alpha1().Customclusters())             //*
 
 
 	infoFactory.Start(ch)

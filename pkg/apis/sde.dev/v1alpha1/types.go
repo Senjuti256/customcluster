@@ -30,8 +30,8 @@ type Customcluster struct {
 
 // FooSpec is the spec for a Foo resource
 type CustomclusterSpec struct {
-	message string `json:"message"`
-	count   int    `json:"count"`
+	Message string `json:"message"`
+	Count   int    `json:"count"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object

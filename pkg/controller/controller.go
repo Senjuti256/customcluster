@@ -40,6 +40,8 @@ type controller struct {
     workqueue         workqueue.RateLimitingInterface
     informer          cache.Controller
     recorder          record.EventRecorder
+   // createPods        metav1.CreateOptions
+    //deletePods        metav1.DeleteOptions
 }
 
 func newController(kubeconfig string, resyncPeriod time.Duration) (*controller, error) {
@@ -150,7 +152,7 @@ func (c *controller) syncHandler(key string) error {
     }
     
     //filterout if pods are available or not
-    custom, err := c.customClientset.controller().CustomClusters(namespace).Get(name, metav1.GetOptions{            //*
+    custom, err := c.customClientset.controller.Customclusters(namespace).Get(name, metav1.GetOptions{            //*
     	TypeMeta:        metav1.TypeMeta{},
     	ResourceVersion: "",
     })            
@@ -162,8 +164,8 @@ func (c *controller) syncHandler(key string) error {
         return fmt.Errorf("failed to retrieve CustomCluster %s/%s: %v", namespace, name, err)
     }
 
-    count := custom.Spec.Count
-    message := custom.Spec.Message
+    //count := custom.Spec.Count
+    //message := custom.Spec.Message
 
     labelSelector := fmt.Sprintf("customcluster=%s", name)
 
@@ -184,62 +186,93 @@ func (c *controller) syncHandler(key string) error {
     }
 
     currentCount := len(pods.Items)
-
+    fmt.Println("Current number of pods in cluster %v", currentCount)
+    
     if currentCount < count {
-        for i := currentCount; i < count; i++ {
+        cnt=count-currentCount
+        //for i := currentCount; i < count; i++ {
             podName := fmt.Sprintf("%s-%d", name, i)
-            if err := c.createPod(namespace, podName, message); err != nil {
+            if err := c.createPods(c,&kubernetes.Clientset{},custom,cnt); 
+            err != nil {
                 return fmt.Errorf("failed to create pod %s/%s: %v", namespace, podName, err)
-            }
+            //}
         }
     } else if currentCount > count {
-        for i := currentCount - 1; i >= count; i-- {
+        //for i := currentCount - 1; i >= count; i-- {
+            cnt = currentCount-count
             pod := &pods.Items[i]
-            if err := c.deletePod(pod); err != nil {
+            if err := c.deletePods(c,&kubernetes.Clientset{},custom,cnt); 
+            err != nil {
                 return fmt.Errorf("failed to delete pod %s/%s: %v", pod.Namespace, pod.Name, err)
             }
+        //}
+    }
+
+    return nil
+}
+
+func createPods(c *controller,clientset *kubernetes.Clientset,custom *V1alpha1.Customcluster,cnt int) {
+    count := custom.Spec.Count
+    //currentCount := len(pods.Items)
+
+    if cnt > 0 {
+        for i := 1; i <= cnt; i++ {
+            pod := &v1.Pod{&kubernetes.Clientset{}
+                ObjectMeta: metav1.ObjectMeta{
+                    GenerateName: fmt.Sprintf("%s-", custom.Name),
+                },
+                Spec: v1.PodSpec{
+                    Containers: []v1.Container{
+                        {
+                            Name:  "container",
+                            Image: "nginx",
+                        },
+                    },
+                },
+            }
+            pod, err := clientset.CoreV1().Pods(metav1.NamespaceDefault).Create(context.Background(), pod, metav1.CreateOptions{})
+            if err != nil {
+                panic(err)
+            }
+            fmt.Printf("Created pod %q for CRD %q with message: %q\n", pod.Name, custom.Name, custom.Spec.Message)
         }
     }
-
-    return nil
 }
 
-func (c *controller) createPod(namespace, podName, message string) error {
-    labels := map[string]string{"customcluster": podName}
-
-    pod := &v1.Pod{
-        ObjectMeta: metav1.ObjectMeta{
-            Namespace: namespace,
-            Name:      podName,
-            Labels:    labels,
-        },
-        Spec: v1.PodSpec{
-            Containers: []v1.Container{
-                {
-                    Name:  "main",
-                    Image: "busybox",
-                    Args:  []string{"sh", "-c", fmt.Sprintf("echo %s; sleep 3600", message)},
-                },
-            },
-        },
+func updatePods(c *controller,clientset *kubernetes.Clientset, oldCustom *V1alpha1.Customcluster, newCustom *V1alpha1.Customcluster) {
+    if oldCustom.Spec.Count != newCustom.Spec.Count || oldCustom.Spec.Message != newCustom.Spec.Message {
+        deletePods(c,clientset, oldCustom)
+        createPods(c,clientset, newCustom)
     }
+}
 
-    _, err := c.kubeClientset.CoreV1().Pods(namespace).Create(context.TODO(),pod,metav1.CreateOptions{})                                                 
+func deletePods(c *controller,clientset *kubernetes.Clientset, custom *V1alpha1.Customcluster,cnt int) {
+    pods, err := clientset.CoreV1().Pods(metav1.NamespaceDefault).List(context.Background(), metav1.ListOptions{LabelSelector: fmt.Sprintf("app=%s", custom.Name)})
     if err != nil {
-        return err
+        panic(err)
     }
-
-    return nil
+    for _, pod := range pods.Items && cnt>0{
+        err = clientset.CoreV1().Pods(metav1.NamespaceDefault).Delete(context.Background(), pod.Name, metav1.DeleteOptions{})
+        cnt--
+        if err != nil {
+            if !errors.IsNotFound(err) {
+                panic(err)
+            }
+        } else {
+            fmt.Printf("Deleted pod %q for CRD %q\n", pod.Name, custom.Name)
+        }
+    }
 }
 
-func (c *controller) deletePod(pod *v1.Pod) error {
+/*func (c *controller) deletePod(pod *v1.Pod) error {
     err := c.kubeClientset.CoreV1().Pods(pod.Namespace).Delete(context.TODO(),pod.Name,metav1.DeleteOptions{})   
     if err != nil && !errors.IsNotFound(err) {
     return err
     }
 
     return nil
-}
+}*/
+
 func (c *controller) handleObject(obj interface{}) {
     key, err := cache.MetaNamespaceKeyFunc(obj)
     if err != nil {
@@ -256,10 +289,10 @@ func (c *controller) handleAdd(obj interface{}) {
 func (c *controller) handleUpdate(oldObj, newObj interface{}) {
     oldCustom := oldObj.(*V1alpha1.Customcluster)                         
     newCustom := newObj.(*V1alpha1.Customcluster)                         
-    if oldCustom.ResourceVersion== newCustom.ResourceVersion {
+    if oldCustom.Spec.Count != newCustom.Spec.Count || oldCustom.Spec.Message != newCustom.Spec.Message {
         // Periodic resync will send update events for all known CustomClusters.
         // Two different versions of the same CustomCluster will always have different RVs.
-        return
+        updatePods(c,&kubernetes.Clientset{},oldCustom,newCustom)
     }
     c.handleObject(newObj)
 }
