@@ -40,11 +40,11 @@ type controller struct {
     workqueue         workqueue.RateLimitingInterface
     informer          cache.Controller
     recorder          record.EventRecorder
-   // createPods        metav1.CreateOptions
+    //createPods        metav1.CreateOptions
     //deletePods        metav1.DeleteOptions
 }
 
-func newController(kubeconfig string, resyncPeriod time.Duration) (*controller, error) {
+func NewController(kubeconfig string, resyncPeriod time.Duration) (*controller, error) {
     config, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
     if err != nil {
         return nil, fmt.Errorf("failed to build config from kubeconfig: %v", err)
@@ -89,7 +89,8 @@ func newController(kubeconfig string, resyncPeriod time.Duration) (*controller, 
 // is closed, at which point it will shutdown the workqueue and wait for
 // workers to finish processing their current work items.
 
-func (c *controller) Run(stopCh <-chan struct{}) {
+
+/*func (c *controller) Run(stopCh <-chan struct{}){
     defer c.workqueue.ShutDown()
     
     // Start the informer factories to begin populating the informer caches
@@ -98,7 +99,7 @@ func (c *controller) Run(stopCh <-chan struct{}) {
     // Wait for the caches to be synced before starting workers
     if !cache.WaitForCacheSync(stopCh, c.customInformer.HasSynced) {
         runtime.HandleError(fmt.Errorf("timed out waiting for caches to sync"))
-        return
+        return 
     }
     go c.customInformer.Run(stopCh)
 
@@ -113,6 +114,19 @@ func (c *controller) Run(stopCh <-chan struct{}) {
     
     klog.Info("Shutting down the worker")
 
+}*/
+
+func (c *controller) Run(ch <-chan struct{}) error {
+
+    defer c.workqueue.ShutDown()
+	if ok := cache.WaitForCacheSync(ch, c.customInformer.HasSynced); !ok {
+		klog.Info("cache was not sycned")
+	}
+
+	go wait.Until(c.runWorker, time.Second, ch)
+
+	<-ch
+	return nil
 }
 
 func (c *controller) runWorker() {
@@ -191,7 +205,7 @@ func (c *controller) syncHandler(key string) error {
         cnt:=count-currentCount
         //for i := currentCount; i < count; i++ {
             podName := fmt.Sprintf("%s", name)
-            if err := c.createPods(c,&kubernetes.Clientset{},custom,cnt);                                                       //*
+            if err := c.createPods(c.kubeClientset,custom,cnt);                                                       //*
             err != nil {
                 return fmt.Errorf("failed to create pod %s/%s: %v", namespace, podName, err)
             //}
@@ -200,7 +214,7 @@ func (c *controller) syncHandler(key string) error {
         //for i := currentCount - 1; i >= count; i-- {
             cnt := currentCount-count
             //pod := &pods.Items
-            if err := c.deletePods(c,&kubernetes.Clientset{},custom,cnt);                                                        //*
+            if err := c.deletePods(clientset,custom,cnt);                                                        //*
             err != nil {
                 //return fmt.Errorf("failed to delete pod %s/%s: %v", pod.Namespace, pod.Name, err)
                 panic(err)
@@ -211,7 +225,7 @@ func (c *controller) syncHandler(key string) error {
     return nil
 }
 
-func createPods(c *controller,clientset *kubernetes.Clientset,custom *V1alpha1.Customcluster,cnt int) {
+func (c *controller) createPods(clientset *kubernetes.Clientset,custom *V1alpha1.Customcluster,cnt int) error{
     if cnt > 0 {
         for i := 1; i <= cnt; i++ {
             pod := &v1.Pod{}
@@ -222,33 +236,35 @@ func createPods(c *controller,clientset *kubernetes.Clientset,custom *V1alpha1.C
             fmt.Printf("Created pod %q for CRD %q with message: %q\n", pod.Name, custom.Name, custom.Spec.Message)
         }
     }
+    return nil
 }
 
-func updatePods(c *controller,clientset *kubernetes.Clientset, oldCustom *V1alpha1.Customcluster, newCustom *V1alpha1.Customcluster,cnt int) {
+func (c *controller) updatePods(clientset *kubernetes.Clientset, oldCustom *V1alpha1.Customcluster, newCustom *V1alpha1.Customcluster,cnt int) error {
     if oldCustom.Spec.Count != newCustom.Spec.Count || oldCustom.Spec.Message != newCustom.Spec.Message {
-        deletePods(c,clientset, oldCustom,cnt)
-        createPods(c,clientset, newCustom,cnt)
+        c.deletePods(clientset, oldCustom,cnt)
+        c.createPods(clientset, newCustom,cnt)
     }
+    return nil
 }
 
-func deletePods(c *controller,clientset *kubernetes.Clientset, custom *V1alpha1.Customcluster,cnt int) {
+func (c *controller) deletePods(clientset *kubernetes.Clientset, custom *V1alpha1.Customcluster,cnt int) error{
     pods, err := clientset.CoreV1().Pods(metav1.NamespaceDefault).List(context.Background(), metav1.ListOptions{LabelSelector: fmt.Sprintf("app=%s", custom.Name)})
     if err != nil {
         panic(err)
     }
     for _, pod := range pods.Items{
         if cnt>0{
-        err = clientset.CoreV1().Pods(metav1.NamespaceDefault).Delete(context.Background(), pod.Name, metav1.DeleteOptions{})
-        cnt--
-        }
+        err = clientset.CoreV1().Pods(metav1.NamespaceDefault).Delete(context.Background(), pod.Name, metav1.DeleteOptions{})}
         if err != nil {
             if !errors.IsNotFound(err) {
                 panic(err)
             }
         } else {
             fmt.Printf("Deleted pod %q for CRD %q\n", pod.Name, custom.Name)
+            cnt--;
         }
     }
+    return nil
 }
 
 /*func (c *controller) deletePod(pod *v1.Pod) error {
@@ -281,7 +297,7 @@ func (c *controller) handleUpdate(oldObj, newObj interface{}) {
         // Periodic resync will send update events for all known CustomClusters.
         // Two different versions of the same CustomCluster will always have different RVs.
         cnt :=newCustom.Spec.Count-oldCustom.Spec.Count
-        updatePods(c,&kubernetes.Clientset{},oldCustom,newCustom,cnt)
+        c.updatePods(&kubernetes.Clientset{},oldCustom,newCustom,cnt)
     }
     c.handleObject(newObj)
 }
