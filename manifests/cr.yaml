@@ -1,5 +1,5 @@
 apiVersion: "sde.dev/v1alpha1"
-kind: customcluster
+kind: Customcluster
 metadata:
   name: cpod
 spec:
