@@ -22,30 +22,55 @@ import (
 
 	//"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
-	"k8s.io/client-go/tools/clientcmd"
+	//"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/workqueue"
 
 	V1alpha1 "github.com/Senjuti256/customcluster/pkg/apis/sde.dev/v1alpha1"
 	clientset "github.com/Senjuti256/customcluster/pkg/client/clientset/versioned"
-	informers "github.com/Senjuti256/customcluster/pkg/client/informers/externalversions"
+	cInformer "github.com/Senjuti256/customcluster/pkg/client/informers/externalversions/sde.dev/v1alpha1"
+    cLister   "github.com/Senjuti256/customcluster/pkg/client/listers/sde.dev/v1alpha1"
+
+    /*
+    tClientSet "github.com/apoorvajagtap/trackPodCRD/pkg/client/clientset/versioned"
+	tInformer "github.com/apoorvajagtap/trackPodCRD/pkg/client/informers/externalversions/aj.com/v1"
+	tLister "github.com/apoorvajagtap/trackPodCRD/pkg/client/listers/aj.com/v1"
+	"github.com/kanisterio/kanister/pkg/poll"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/tools/cache"
+	"k8s.io/client-go/util/workqueue"
+	"k8s.io/klog/v2"
+    */
 )
 
 const controllerAgentName = "controller"
 
 type controller struct {
-    kubeClientset     kubernetes.Interface
-    customClientset   clientset.Interface
+    kubeclient    kubernetes.Interface
+    customclient   clientset.Interface
     customInformer    cache.SharedIndexInformer
     workqueue         workqueue.RateLimitingInterface
     informer          cache.Controller
     recorder          record.EventRecorder
-    
-    //createPods        metav1.CreateOptions
-    //deletePods        metav1.DeleteOptions
+    // - resource (informer) cache has synced
+	cpodSync cache.InformerSynced
+	// - interface provided by informer
+	cpodlister cLister.CustomclusterLister
+	// - queue
+	// stores the work that has to be processed, instead of performing
+	// as soon as it's changed.
+	// Helps to ensure we only process a fixed amount of resources at a
+	// time, and makes it easy to ensure we are never processing the same item
+	// simultaneously in two different workers.
+	//wq workqueue.RateLimitingInterface
 }
 
-func NewController(kubeconfig string, resyncPeriod time.Duration) (*controller, error) {
+/*func NewController(kubeconfig string, resyncPeriod time.Duration) (*controller, error) {
     config, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
     if err != nil {
         return nil, fmt.Errorf("failed to build config from kubeconfig: %v", err)
@@ -84,7 +109,34 @@ func NewController(kubeconfig string, resyncPeriod time.Duration) (*controller, 
 
     return controller, nil
 }
+*/
 
+func NewController(kubeClient kubernetes.Interface, customClient clientset.Interface, cpodInformer cInformer.CustomclusterInformer) *controller {
+	c := &controller{
+		kubeclient: kubeClient,
+		customclient: customClient,
+		cpodSync:   cpodInformer.Informer().HasSynced,
+		cpodlister: cpodInformer.Lister(),
+		workqueue:         workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "Customcluster"),
+	}
+
+	// event handler when the trackPod resources are added/deleted/updated.
+	cpodInformer.Informer().AddEventHandler(
+		cache.ResourceEventHandlerFuncs{
+			AddFunc: c.handleAdd,
+			UpdateFunc: func(old, obj interface{}) {
+				oldTpod := old.(*V1alpha1.Customcluster)
+				newTpod := obj.(*V1alpha1.Customcluster)
+				if newTpod == oldTpod {
+					return
+				}
+				c.handleAdd(obj)
+			},
+			DeleteFunc: c.handleDel,
+		},
+    )
+    return c
+}
 // Run will set up the event handlers for types we are interested in, as well
 // as syncing informer caches and starting workers. It will block until stopCh
 // is closed, at which point it will shutdown the workqueue and wait for
@@ -140,7 +192,7 @@ func (c *controller) syncHandler(key string) error {
     }
     
     //filterout if pods are available or not
-    custom, err := c.customClientset.SamplecontrollerV1alpha1().Customclusters(namespace).Get(context.Background(),name, metav1.GetOptions{            
+    custom, err := c.customclient.SamplecontrollerV1alpha1().Customclusters(namespace).Get(context.Background(),name, metav1.GetOptions{            
     	TypeMeta:        metav1.TypeMeta{},
     	ResourceVersion: "",
     })            
@@ -156,7 +208,7 @@ func (c *controller) syncHandler(key string) error {
     //message := custom.Spec.Message
     labelSelector := fmt.Sprintf("customcluster=%s", name)
 
-    pods, err := c.kubeClientset.CoreV1().Pods(namespace).List(context.TODO(),metav1.ListOptions{
+    pods, err := c.kubeclient.CoreV1().Pods(namespace).List(context.TODO(),metav1.ListOptions{
     	TypeMeta:             metav1.TypeMeta{},
     	LabelSelector:        labelSelector,
     	FieldSelector:        "",
@@ -196,7 +248,7 @@ func (c *controller) createPods(custom *V1alpha1.Customcluster,cnt int) error{
     if cnt > 0 {
         for i := 1; i <= cnt; i++ {
             pod := &v1.Pod{}
-            pod, err := c.kubeClientset.CoreV1().Pods(metav1.NamespaceDefault).Create(context.Background(), pod, metav1.CreateOptions{})
+            pod, err := c.kubeclient.CoreV1().Pods(metav1.NamespaceDefault).Create(context.Background(), pod, metav1.CreateOptions{})
             if err != nil {
                 panic(err)
             }
@@ -215,13 +267,13 @@ func (c *controller) updatePods(oldCustom *V1alpha1.Customcluster, newCustom *V1
 }
 
 func (c *controller) deletePods(custom *V1alpha1.Customcluster,cnt int) error{
-    pods, err := c.kubeClientset.CoreV1().Pods(metav1.NamespaceDefault).List(context.Background(), metav1.ListOptions{LabelSelector: fmt.Sprintf("app=%s", custom.Name)})
+    pods, err := c.kubeclient.CoreV1().Pods(metav1.NamespaceDefault).List(context.Background(), metav1.ListOptions{LabelSelector: fmt.Sprintf("app=%s", custom.Name)})
     if err != nil {
         panic(err)
     }
     for _, pod := range pods.Items{
         if cnt>0{
-        err = c.kubeClientset.CoreV1().Pods(metav1.NamespaceDefault).Delete(context.Background(), pod.Name, metav1.DeleteOptions{})}
+        err = c.kubeclient.CoreV1().Pods(metav1.NamespaceDefault).Delete(context.Background(), pod.Name, metav1.DeleteOptions{})}
         if err != nil {
             if !errors.IsNotFound(err) {
                 panic(err)
@@ -259,7 +311,7 @@ func (c *controller) handleUpdate(oldObj, newObj interface{}) {
     c.handleObject(newObj)
 }
 
-func (c *controller) handleDelete(obj interface{}) {
+func (c *controller) handleDel(obj interface{}) {
     key, err := cache.DeletionHandlingMetaNamespaceKeyFunc(obj)
     if err != nil {
         runtime.HandleError(fmt.Errorf("failed to get key for object %+v: %v", obj, err))

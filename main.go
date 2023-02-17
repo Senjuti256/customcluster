@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"time"
 
-	//"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/util/homedir"
@@ -40,15 +40,15 @@ func main() {
 		log.Printf("getting klient set %s\n", err.Error())
 	}
 
-	/*kubeclient, err := kubernetes.NewForConfig(config)
+	kubeclient, err := kubernetes.NewForConfig(config)
 	if err != nil {
 		log.Printf("getting std client %s\n", err.Error())
-	}*/
+	}
     
 	infoFactory:= kInfFac.NewSharedInformerFactory(klientset, 10*time.Minute)
 	ch := make(chan struct{})
-	//c:= controller.NewController(kubeclient, klientset, infoFactory.Samplecontroller().V1alpha1().Customclusters())             //*
-	c,err:= controller.NewController("kubeconfig",10*time.Minute)
+	c:= controller.NewController(kubeclient, klientset, infoFactory.Samplecontroller().V1alpha1().Customclusters())             //*
+	//c,err:= controller.NewController(klientset,10*time.Minute)
 	
 
 	infoFactory.Start(ch)
