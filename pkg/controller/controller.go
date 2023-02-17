@@ -113,21 +113,21 @@ type controller struct {
 
 func NewController(kubeClient kubernetes.Interface, customClient clientset.Interface, cpodInformer cInformer.CustomclusterInformer) *controller {
 	c := &controller{
-		kubeclient: kubeClient,
+		kubeclient:   kubeClient,
 		customclient: customClient,
-		cpodSync:   cpodInformer.Informer().HasSynced,
-		cpodlister: cpodInformer.Lister(),
-		workqueue:         workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "Customcluster"),
+		cpodSync:     cpodInformer.Informer().HasSynced,
+		cpodlister:   cpodInformer.Lister(),
+		workqueue:    workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "Customcluster"),
 	}
 
-	// event handler when the trackPod resources are added/deleted/updated.
+	// event handler when the customcluster resources are added/deleted/updated.
 	cpodInformer.Informer().AddEventHandler(
 		cache.ResourceEventHandlerFuncs{
 			AddFunc: c.handleAdd,
 			UpdateFunc: func(old, obj interface{}) {
-				oldTpod := old.(*V1alpha1.Customcluster)
-				newTpod := obj.(*V1alpha1.Customcluster)
-				if newTpod == oldTpod {
+				oldcpod := obj.(*V1alpha1.Customcluster)
+				newcpod := obj.(*V1alpha1.Customcluster)
+				if newcpod == oldcpod {
 					return
 				}
 				c.handleAdd(obj)
