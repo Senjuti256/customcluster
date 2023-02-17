@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"log"
 
 	//"os"
 	//"os/signal"
@@ -29,24 +30,22 @@ import (
 	V1alpha1 "github.com/Senjuti256/customcluster/pkg/apis/sde.dev/v1alpha1"
 	clientset "github.com/Senjuti256/customcluster/pkg/client/clientset/versioned"
 	cInformer "github.com/Senjuti256/customcluster/pkg/client/informers/externalversions/sde.dev/v1alpha1"
-    cLister   "github.com/Senjuti256/customcluster/pkg/client/listers/sde.dev/v1alpha1"
-
-    /*
-    tClientSet "github.com/apoorvajagtap/trackPodCRD/pkg/client/clientset/versioned"
-	tInformer "github.com/apoorvajagtap/trackPodCRD/pkg/client/informers/externalversions/aj.com/v1"
-	tLister "github.com/apoorvajagtap/trackPodCRD/pkg/client/listers/aj.com/v1"
-	"github.com/kanisterio/kanister/pkg/poll"
-	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/util/wait"
-	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/tools/cache"
-	"k8s.io/client-go/util/workqueue"
-	"k8s.io/klog/v2"
-    */
-)
+	cLister "github.com/Senjuti256/customcluster/pkg/client/listers/sde.dev/v1alpha1"
+	/*
+		    tClientSet "github.com/apoorvajagtap/trackPodCRD/pkg/client/clientset/versioned"
+			tInformer "github.com/apoorvajagtap/trackPodCRD/pkg/client/informers/externalversions/aj.com/v1"
+			tLister "github.com/apoorvajagtap/trackPodCRD/pkg/client/listers/aj.com/v1"
+			"github.com/kanisterio/kanister/pkg/poll"
+			corev1 "k8s.io/api/core/v1"
+			"k8s.io/apimachinery/pkg/api/errors"
+			metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+			"k8s.io/apimachinery/pkg/labels"
+			"k8s.io/apimachinery/pkg/util/wait"
+			"k8s.io/client-go/kubernetes"
+			"k8s.io/client-go/tools/cache"
+			"k8s.io/client-go/util/workqueue"
+			"k8s.io/klog/v2"
+	*/)
 
 const controllerAgentName = "controller"
 
@@ -145,13 +144,18 @@ func NewController(kubeClient kubernetes.Interface, customClient clientset.Inter
 func (c *controller) Run(ch <-chan struct{}) error {
 
     defer c.workqueue.ShutDown()
-	if ok := cache.WaitForCacheSync(ch, c.customInformer.HasSynced); !ok {
-		klog.Info("cache was not sycned")
-	}
 
+    // Start the informer factories to begin populating the informer caches
+	klog.Info("Starting the Customcluster controller")
+
+	if ok := cache.WaitForCacheSync(ch, c.cpodSync); !ok {
+		log.Println("cache was not sycned")}
+
+    klog.Info("Starting workers")
 	go wait.Until(c.runWorker, time.Second, ch)
 
 	<-ch
+    klog.Info("Shutting down the worker")
 	return nil
 }
 
@@ -229,22 +233,24 @@ func (c *controller) syncHandler(key string) error {
     
     if currentCount < count {
         cnt:=count-currentCount
-        podName := fmt.Sprintf("%s", name)
-        err := c.createPods(custom,cnt);                                                       
-            if err != nil {
-                return fmt.Errorf("failed to create pod %s/%s: %v", namespace, podName, err)}
+       // podName := fmt.Sprintf("%s", name)
+        //err :=
+         c.createPods(custom,cnt);                                                       
+            /*if err != nil {
+                return fmt.Errorf("failed to create pod %s/%s: %v", namespace, podName, err)}*/
     } else if currentCount > count {
             cnt := currentCount-count
-            err := c.deletePods(custom,cnt);                                                        
-            if err != nil {
+            //err := 
+            c.deletePods(custom,cnt);                                                        
+            /*if err != nil {
                 panic(err)
-            }
+            }*/
     }
 
     return nil
 }
 
-func (c *controller) createPods(custom *V1alpha1.Customcluster,cnt int) error{
+func (c *controller) createPods(custom *V1alpha1.Customcluster,cnt int) {   //error{
     if cnt > 0 {
         for i := 1; i <= cnt; i++ {
             pod := &v1.Pod{}
@@ -255,18 +261,18 @@ func (c *controller) createPods(custom *V1alpha1.Customcluster,cnt int) error{
             fmt.Printf("Created pod %q for CRD %q with message: %q\n", pod.Name, custom.Name, custom.Spec.Message)
         }
     }
-    return nil
+    //return nil
 }
 
-func (c *controller) updatePods(oldCustom *V1alpha1.Customcluster, newCustom *V1alpha1.Customcluster,cnt int) error {
+func (c *controller) updatePods(oldCustom *V1alpha1.Customcluster, newCustom *V1alpha1.Customcluster,cnt int) {    //error {
     if oldCustom.Spec.Count != newCustom.Spec.Count || oldCustom.Spec.Message != newCustom.Spec.Message {
         c.deletePods(oldCustom,cnt)
         c.createPods(newCustom,cnt)
     }
-    return nil
+    //return nil
 }
 
-func (c *controller) deletePods(custom *V1alpha1.Customcluster,cnt int) error{
+func (c *controller) deletePods(custom *V1alpha1.Customcluster,cnt int) {   //error{
     pods, err := c.kubeclient.CoreV1().Pods(metav1.NamespaceDefault).List(context.Background(), metav1.ListOptions{LabelSelector: fmt.Sprintf("app=%s", custom.Name)})
     if err != nil {
         panic(err)
@@ -283,7 +289,7 @@ func (c *controller) deletePods(custom *V1alpha1.Customcluster,cnt int) error{
             cnt--;
         }
     }
-    return nil
+    //return nil
 }
 
 func (c *controller) handleObject(obj interface{}) {
