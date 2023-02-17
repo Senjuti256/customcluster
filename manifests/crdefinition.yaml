@@ -33,7 +33,7 @@ spec:
     singular: customcluster
     # kind is normally the CamelCased singular type. Your resource manifests use this.
     kind: Customcluster
-    listKind: customclusterList
+    listKind: CustomclusterList
     # shortNames allow shorter string to match your resource on the CLI
     shortNames:
     - cpod
