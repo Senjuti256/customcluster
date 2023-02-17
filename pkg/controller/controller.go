@@ -31,21 +31,7 @@ import (
 	clientset "github.com/Senjuti256/customcluster/pkg/client/clientset/versioned"
 	cInformer "github.com/Senjuti256/customcluster/pkg/client/informers/externalversions/sde.dev/v1alpha1"
 	cLister "github.com/Senjuti256/customcluster/pkg/client/listers/sde.dev/v1alpha1"
-	/*
-		    tClientSet "github.com/apoorvajagtap/trackPodCRD/pkg/client/clientset/versioned"
-			tInformer "github.com/apoorvajagtap/trackPodCRD/pkg/client/informers/externalversions/aj.com/v1"
-			tLister "github.com/apoorvajagtap/trackPodCRD/pkg/client/listers/aj.com/v1"
-			"github.com/kanisterio/kanister/pkg/poll"
-			corev1 "k8s.io/api/core/v1"
-			"k8s.io/apimachinery/pkg/api/errors"
-			metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-			"k8s.io/apimachinery/pkg/labels"
-			"k8s.io/apimachinery/pkg/util/wait"
-			"k8s.io/client-go/kubernetes"
-			"k8s.io/client-go/tools/cache"
-			"k8s.io/client-go/util/workqueue"
-			"k8s.io/klog/v2"
-	*/)
+)
 
 const controllerAgentName = "controller"
 
