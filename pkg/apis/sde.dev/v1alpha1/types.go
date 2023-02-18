@@ -26,7 +26,15 @@ type Customcluster struct {
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
 	Spec CustomclusterSpec `json:"spec"`
+	Status CustomclusterStatus `json:"status,omitempty"`
 }
+
+type CustomclusterStatus struct {
+	Message string `json:"message"`
+	Count   int    `json:"count"`
+}
+
+
 
 // FooSpec is the spec for a Foo resource
 type CustomclusterSpec struct {

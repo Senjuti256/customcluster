@@ -4,310 +4,345 @@ import (
 	"context"
 	"fmt"
 	"log"
-
-	//"os"
-	//"os/signal"
-	//"syscall"
+	"math/rand"
+	"strconv"
 	"time"
 
-	"github.com/golang/glog"
-	v1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/klog/v2"
-
-	//"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/util/runtime"
-	"k8s.io/apimachinery/pkg/util/wait"
-	"k8s.io/client-go/kubernetes"
-
-	//"k8s.io/client-go/rest"
-	"k8s.io/client-go/tools/cache"
-	//"k8s.io/client-go/tools/clientcmd"
-	"k8s.io/client-go/tools/record"
-	"k8s.io/client-go/util/workqueue"
-
-	V1alpha1 "github.com/Senjuti256/customcluster/pkg/apis/sde.dev/v1alpha1"
-	clientset "github.com/Senjuti256/customcluster/pkg/client/clientset/versioned"
+	v1alpha1 "github.com/Senjuti256/customcluster/pkg/apis/sde.dev/v1alpha1"
+	cClientSet "github.com/Senjuti256/customcluster/pkg/client/clientset/versioned"
 	cInformer "github.com/Senjuti256/customcluster/pkg/client/informers/externalversions/sde.dev/v1alpha1"
 	cLister "github.com/Senjuti256/customcluster/pkg/client/listers/sde.dev/v1alpha1"
+	"github.com/kanisterio/kanister/pkg/poll"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/tools/cache"
+	"k8s.io/client-go/util/workqueue"
+	"k8s.io/klog/v2"
 )
 
-const controllerAgentName = "controller"
+const (
+	// SuccessSynced is used as part of the Event 'reason' when a Foo is synced
+	SuccessSynced = "Synced"
+	// ErrResourceExists is used as part of the Event 'reason' when a Foo fails
+	// to sync due to a Deployment of the same name already existing.
+	ErrResourceExists = "ErrResourceExists"
 
-type controller struct {
-    kubeclient    kubernetes.Interface
-    customclient   clientset.Interface
-    customInformer    cache.SharedIndexInformer
-    workqueue         workqueue.RateLimitingInterface
-    informer          cache.Controller
-    recorder          record.EventRecorder
-    // - resource (informer) cache has synced
+	// MessageResourceExists is the message used for Events when a resource
+	// fails to sync due to a Deployment already existing
+	MessageResourceExists = "Resource %q already exists and is not managed by controller"
+	// MessageResourceSynced is the message used for an Event fired when a Foo
+	// is synced successfully
+	MessageResourceSynced = "Customcluster synced successfully"
+)
+
+// Controller implementation for Customcluster resources
+type Controller struct {
+	// K8s clientset
+	kubeClient kubernetes.Interface
+	// things required for controller:
+	// - clientset for interacting with custom resources
+	cpodClient cClientSet.Interface
+	// - resource (informer) cache has synced
 	cpodSync cache.InformerSynced
 	// - interface provided by informer
 	cpodlister cLister.CustomclusterLister
 	// - queue
 	// stores the work that has to be processed, instead of performing
-	// as soon as it's changed.
+	// as soon as it's changed.This reduces overhead to the API server through repeated querying for updates on CR
 	// Helps to ensure we only process a fixed amount of resources at a
 	// time, and makes it easy to ensure we are never processing the same item
 	// simultaneously in two different workers.
-	//wq workqueue.RateLimitingInterface
+	wq workqueue.RateLimitingInterface
 }
 
-/*func NewController(kubeconfig string, resyncPeriod time.Duration) (*controller, error) {
-    config, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
-    if err != nil {
-        return nil, fmt.Errorf("failed to build config from kubeconfig: %v", err)
-    }
-
-    kubeClientset, err := kubernetes.NewForConfig(config)
-    if err != nil {
-        return nil, fmt.Errorf("failed to create kube clientset: %v", err)
-    }
-
-    customClientset, err := clientset.NewForConfig(config)
-    if err != nil {
-        return nil, fmt.Errorf("failed to create custom clientset: %v", err)
-    }
-
-    customInformerFactory := informers.NewSharedInformerFactory(customClientset, resyncPeriod)
-    customInformer := customInformerFactory.Samplecontroller().V1alpha1().Customclusters().Informer()
-    workqueue := workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "CustomClusters")
-
-    
-    controller := &controller{
-    	kubeClientset:   kubeClientset,
-    	customClientset: customClientset,
-    	customInformer:  customInformer,
-    	workqueue:       workqueue,
-        //recorder:          recorder,
-    }
-
-    klog.Info("Setting up event handlers")
-
-    customInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
-        AddFunc:    controller.handleAdd,
-        UpdateFunc: controller.handleUpdate,
-        DeleteFunc: controller.handleDelete,
-    })
-
-    return controller, nil
-}
-*/
-
-func NewController(kubeClient kubernetes.Interface, customClient clientset.Interface, cpodInformer cInformer.CustomclusterInformer) *controller {
-	c := &controller{
-		kubeclient:   kubeClient,
-		customclient: customClient,
-		cpodSync:     cpodInformer.Informer().HasSynced,
-		cpodlister:   cpodInformer.Lister(),
-		workqueue:    workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "Customcluster"),
+// returns a new customcluster controller
+func NewController(kubeClient kubernetes.Interface, cpodClient cClientSet.Interface, cpodInformer cInformer.CustomclusterInformer) *Controller {
+	c := &Controller{
+		kubeClient: kubeClient,
+		cpodClient: cpodClient,
+		cpodSync:   cpodInformer.Informer().HasSynced,
+		cpodlister: cpodInformer.Lister(),
+		wq:         workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "Customcluster"),
 	}
 
-	// event handler when the customcluster resources are added/deleted/updated.
+	// event handler when the custom resources are added/deleted/updated.
 	cpodInformer.Informer().AddEventHandler(
 		cache.ResourceEventHandlerFuncs{
 			AddFunc: c.handleAdd,
-			UpdateFunc: func(old, obj interface{}) {
-				oldcpod := obj.(*V1alpha1.Customcluster)
-				newcpod := obj.(*V1alpha1.Customcluster)
+			UpdateFunc: func(old, new interface{}) {
+				oldcpod := old.(*v1alpha1.Customcluster)
+				newcpod := new.(*v1alpha1.Customcluster)
 				if newcpod == oldcpod {
 					return
 				}
-				c.handleAdd(obj)
+				c.handleAdd(new)
 			},
 			DeleteFunc: c.handleDel,
 		},
-    )
-    return c
+	)
+
+	return c
 }
+
 // Run will set up the event handlers for types we are interested in, as well
-// as syncing informer caches and starting workers. It will block until stopCh
+// as syncing informer caches and starting workers. It will block until ch
 // is closed, at which point it will shutdown the workqueue and wait for
 // workers to finish processing their current work items.
+func (c *Controller) Run(ch chan struct{}) error {
+	defer c.wq.ShutDown()
 
-func (c *controller) Run(ch <-chan struct{}) error {
-
-    defer c.workqueue.ShutDown()
-
-    // Start the informer factories to begin populating the informer caches
+	// Start the informer factories to begin populating the informer caches
 	klog.Info("Starting the Customcluster controller")
 
+	// Wait for the caches to be synced before starting workers
 	if ok := cache.WaitForCacheSync(ch, c.cpodSync); !ok {
-		log.Println("cache was not sycned")}
-
-    klog.Info("Starting workers")
-	go wait.Until(c.runWorker, time.Second, ch)
-
+		log.Println("failed to wait for cache to sync")
+	}
+	// Launch the goroutine for workers to process the CR
+	klog.Info("Starting workers")
+	go wait.Until(c.worker, time.Second, ch)
+	klog.Info("Started workers")
 	<-ch
-    klog.Info("Shutting down the worker")
+	klog.Info("Shutting down the worker")
+
 	return nil
 }
 
-func (c *controller) runWorker() {
-    for c.processNextItem() {
-    }
+// worker is a long-running function that will continually call the
+// processNextWorkItem function in order to read and process a message on the
+// workqueue
+func (c *Controller) worker() {
+	for c.processNextItem() {
+	}
 }
 
-func (c *controller) processNextItem() bool {
-    item, quit := c.workqueue.Get()
-    if quit {
-        return false
-    }
-    defer c.workqueue.Done(item)
-
-	key, err := cache.MetaNamespaceKeyFunc(item)
-	if err != nil {
-		klog.Errorf("error while calling Namespace Key func on cache for item %s: %s", key, err.Error())
+// processNextWorkItem will read a single work item existing in the workqueue and
+// attempt to process it, by calling the syncHandler.
+func (c *Controller) processNextItem() bool {
+	klog.Info("Inside processNextItem")
+	item, shutdown := c.wq.Get()
+	if shutdown {
+		klog.Info("Shutting down")
 		return false
 	}
 
-
-    error := c.syncHandler(item.(string))
-    if error != nil {
-        c.workqueue.AddRateLimited(item)
-        runtime.HandleError(fmt.Errorf("failed to process item with key %q: %v", item, error))
-        return true
-    }
-
-    c.workqueue.Forget(key)
-    return true
-}
-
-func (c *controller) syncHandler(key string) error {
-    namespace, name, err := cache.SplitMetaNamespaceKey(key)
-    if err != nil {
-        return fmt.Errorf("failed to split key into namespace and name: %v", err)
-    }
+	defer c.wq.Forget(item)
+	key, err := cache.MetaNamespaceKeyFunc(item)
+	if err != nil {
+		klog.Errorf("error while calling Namespace Key func on cache for item %s: %s", item, err.Error())
+		return false
+	}
     
-    //filterout if pods are available or not
-    custom, err := c.customclient.SamplecontrollerV1alpha1().Customclusters(namespace).Get(context.Background(),name, metav1.GetOptions{            
-    	TypeMeta:        metav1.TypeMeta{},
-    	ResourceVersion: "",
-    })            
-    if err != nil {
-        if errors.IsNotFound(err) {
-            glog.Infof("CustomCluster %s/%s has been deleted", namespace, name)
-            return nil
+	klog.Info("Trying to get namespace and name")
+	ns, name, err := cache.SplitMetaNamespaceKey(key)
+	if err != nil {
+		klog.Errorf("error while splitting key into namespace & name: %s", err.Error())
+		return false
+	}
+
+	cpod, err := c.cpodlister.Customclusters(ns).Get(name)
+	if err != nil {
+		klog.Errorf("error %s, Getting the cpod resource from lister.", err.Error())
+		return false
+	}
+
+	// filter out if required pods are already available or not:
+	labelSelector := metav1.LabelSelector{
+		MatchLabels: map[string]string{
+			"controller": cpod.Name,
+		},
+	}
+	listOptions := metav1.ListOptions{
+		LabelSelector: labels.Set(labelSelector.MatchLabels).String(),
+	}
+	pList, _ := c.kubeClient.CoreV1().Pods(cpod.Namespace).List(context.TODO(), listOptions)
+
+	if err := c.syncHandler(cpod, pList); err != nil {
+		klog.Errorf("Error while syncing the current vs desired state for the resource of kind Customcluster %v: %v\n", cpod.Name, err.Error())
+		return false
+	}
+
+	// wait for pods to be ready
+	err = c.waitForPods(cpod, pList)
+	if err != nil {
+		klog.Errorf("error %s, waiting for pods to meet the expected state", err.Error())
+	}
+
+	// fmt.Println("Calling update status again!!")
+	err = c.updateStatus(cpod, cpod.Spec.Message, pList)
+	if err != nil {
+		klog.Errorf("error %s updating status after waiting for Pods", err.Error())
+	}
+
+	return true
+}
+
+// total number of 'Running' pods
+func (c *Controller) totalRunningPods(cpod *v1alpha1.Customcluster) int {
+	labelSelector := metav1.LabelSelector{
+		MatchLabels: map[string]string{
+			"controller": cpod.Name,
+		},
+	}
+	listOptions := metav1.ListOptions{
+		LabelSelector: labels.Set(labelSelector.MatchLabels).String(),
+	}
+
+	pList, _ := c.kubeClient.CoreV1().Pods(cpod.Namespace).List(context.TODO(), listOptions)
+
+	runningPods := 0
+	for _, pod := range pList.Items {
+		if pod.ObjectMeta.DeletionTimestamp.IsZero() && pod.Status.Phase == "Running" {
+			runningPods++
+		}
+	}
+	return runningPods
+}
+
+// syncHandler monitors the current state & if current != desired,
+// tries to meet the desired state.
+func (c *Controller) syncHandler(cpod *v1alpha1.Customcluster, pList *corev1.PodList) error {
+	var Createpod, Deletepod bool
+	itr := cpod.Spec.Count
+	deleteItr := 0
+	runningPods := c.totalRunningPods(cpod)
+
+	if runningPods != cpod.Spec.Count || cpod.Spec.Message != cpod.Status.Message {
+		if runningPods > 0 && cpod.Spec.Message != cpod.Status.Message {
+			klog.Warningf("the message of Customcluster %v resource has been modified, recreating the pods\n", cpod.Name)
+			Deletepod = true
+			Createpod = true
+			itr = cpod.Spec.Count
+			deleteItr = runningPods
+		} else {
+			klog.Warningf("detected mismatch of replica count for CR %v >> expected: %v & have: %v\n\n", cpod.Name, cpod.Spec.Count, runningPods)
+			if runningPods < cpod.Spec.Count {
+				Createpod = true
+				itr = cpod.Spec.Count - runningPods
+				klog.Infof("Creating %v new pods\n", itr)
+			} else if runningPods > cpod.Spec.Count {
+				Deletepod = true
+				deleteItr = runningPods - cpod.Spec.Count
+				klog.Infof("Deleting %v extra pods\n", deleteItr)
+			}
         }
-        return fmt.Errorf("failed to retrieve CustomCluster %s/%s: %v", namespace, name, err)
-    }
+	}
 
-    count := custom.Spec.Count
-    //message := custom.Spec.Message
-    labelSelector := fmt.Sprintf("customcluster=%s", name)
+	// Delete extra pod
+	// TODO: Detect the manually created pod, and delete that specific pod.
+	if Deletepod {
+		for i := 0; i < deleteItr; i++ {
+			err := c.kubeClient.CoreV1().Pods(cpod.Namespace).Delete(context.TODO(), pList.Items[i].Name, metav1.DeleteOptions{})
+			if err != nil {
+				klog.Errorf("Pod deletion failed for CR %v\n", cpod.Name)
+				return err
+			}
+		}
+	}
 
-    pods, err := c.kubeclient.CoreV1().Pods(namespace).List(context.TODO(),metav1.ListOptions{
-    	TypeMeta:             metav1.TypeMeta{},
-    	LabelSelector:        labelSelector,
-    	FieldSelector:        "",
-    	Watch:                false,
-    	AllowWatchBookmarks:  false,
-    	ResourceVersion:      "",
-    	ResourceVersionMatch: "",
-    	TimeoutSeconds:       new(int64),
-    	Limit:                0,
-    	Continue:             "",
-    })             
-    if err != nil {
-        return fmt.Errorf("failed to list pods: %v", err)
-    }
+	// Creates pod
+	if Createpod {
+		for i := 0; i < itr; i++ {
+			nPod, err := c.kubeClient.CoreV1().Pods(cpod.Namespace).Create(context.TODO(), newPod(cpod), metav1.CreateOptions{})
+			if err != nil {
+				if errors.IsAlreadyExists(err) {
+					// retry (might happen when the same named pod is created again)
+					itr++
+				} else {
+					klog.Errorf("Pod creation failed for CR %v\n", cpod.Name)
+					return err
+				}
+			}
+			if nPod.Name != "" {
+				klog.Infof("Pod %v created successfully!\n", nPod.Name)
+			}
+		}
+	}
 
-    currentCount := len(pods.Items)
-    fmt.Print("Current number of pods in cluster = ", currentCount)
-    
-    if currentCount < count {
-        cnt:=count-currentCount
-       // podName := fmt.Sprintf("%s", name)
-        //err :=
-         c.createPods(custom,cnt);                                                       
-            /*if err != nil {
-                return fmt.Errorf("failed to create pod %s/%s: %v", namespace, podName, err)}*/
-    } else if currentCount > count {
-            cnt := currentCount-count
-            //err := 
-            c.deletePods(custom,cnt);                                                        
-            /*if err != nil {
-                panic(err)
-            }*/
-    }
-
-    return nil
+	return nil
 }
 
-func (c *controller) createPods(custom *V1alpha1.Customcluster,cnt int) {   //error{
-    if cnt > 0 {
-        for i := 1; i <= cnt; i++ {
-            pod := &v1.Pod{}
-            pod, err := c.kubeclient.CoreV1().Pods(metav1.NamespaceDefault).Create(context.Background(), pod, metav1.CreateOptions{})
-            if err != nil {
-                panic(err)
-            }
-            fmt.Printf("Created pod %q for CRD %q with message: %q\n", pod.Name, custom.Name, custom.Spec.Message)
-        }
-    }
-    //return nil
+// Creates the new pod with the specified template
+func newPod(cpod *v1alpha1.Customcluster) *corev1.Pod {
+	labels := map[string]string{
+		"controller": cpod.Name,
+	}
+	return &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Labels:    labels,
+			Name:      fmt.Sprintf(cpod.Name + "-" + strconv.Itoa(rand.Intn(10000000))),
+			Namespace: cpod.Namespace,
+			OwnerReferences: []metav1.OwnerReference{
+				*metav1.NewControllerRef(cpod, v1alpha1.SchemeGroupVersion.WithKind("Customcluster")),
+			},
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name:  "static-nginx",
+					Image: "nginx:latest",
+					Env: []corev1.EnvVar{
+						{
+							Name:  "MESSAGE",
+							Value: cpod.Spec.Message,
+						},
+					},
+					Command: []string{
+						"/bin/sh",
+					},
+					Args: []string{
+						"-c",
+						"while true; do echo '$(MESSAGE)'; sleep 100; done",
+					},
+				},
+			},
+		},
+	}
 }
 
-func (c *controller) updatePods(oldCustom *V1alpha1.Customcluster, newCustom *V1alpha1.Customcluster,cnt int) {    //error {
-    if oldCustom.Spec.Count != newCustom.Spec.Count || oldCustom.Spec.Message != newCustom.Spec.Message {
-        c.deletePods(oldCustom,cnt)
-        c.createPods(newCustom,cnt)
-    }
-    //return nil
+// If the pod doesn't switch to a running state within 10 minutes, shall report.
+func (c *Controller) waitForPods(cpod *v1alpha1.Customcluster, pList *corev1.PodList) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	return poll.Wait(ctx, func(ctx context.Context) (bool, error) {
+		runningPods := c.totalRunningPods(cpod)
+		// fmt.Println("Inside waitforPods ???? totalrunningPods >>>> ", runningPods)
+
+		if runningPods == cpod.Spec.Count {
+			return true, nil
+		}
+		return false, nil
+	})
 }
 
-func (c *controller) deletePods(custom *V1alpha1.Customcluster,cnt int) {   //error{
-    pods, err := c.kubeclient.CoreV1().Pods(metav1.NamespaceDefault).List(context.Background(), metav1.ListOptions{LabelSelector: fmt.Sprintf("app=%s", custom.Name)})
-    if err != nil {
-        panic(err)
-    }
-    for _, pod := range pods.Items{
-        if cnt>0{
-        err = c.kubeclient.CoreV1().Pods(metav1.NamespaceDefault).Delete(context.Background(), pod.Name, metav1.DeleteOptions{})}
-        if err != nil {
-            if !errors.IsNotFound(err) {
-                panic(err)
-            }
-        } else {
-            fmt.Printf("Deleted pod %q for CRD %q\n", pod.Name, custom.Name)
-            cnt--;
-        }
-    }
-    //return nil
+// Updates the status section of TrackPod
+func (c *Controller) updateStatus(cpod *v1alpha1.Customcluster, progress string, pList *corev1.PodList) error {
+	fmt.Println("Just entered the update status fn")
+	t, err := c.cpodClient.SamplecontrollerV1alpha1().Customclusters(cpod.Namespace).Get(context.Background(), cpod.Name, metav1.GetOptions{})
+	totrunningPods := c.totalRunningPods(cpod)
+	if err != nil {
+		return err
+	}
+    fmt.Println("Got the total pods running")
+	t.Status.Count = totrunningPods
+	t.Status.Message = progress
+	 //fmt.Println("Inside updatestatus >>>>>>>>>>> ", t.Status.Message)
+	_, err = c.cpodClient.SamplecontrollerV1alpha1().Customclusters(cpod.Namespace).UpdateStatus(context.Background(), t, metav1.UpdateOptions{})
+
+	return err
 }
 
-func (c *controller) handleObject(obj interface{}) {
-    key, err := cache.MetaNamespaceKeyFunc(obj)
-    if err != nil {
-        runtime.HandleError(fmt.Errorf("failed to get key for object %+v: %v", obj, err))
-        return
-    }
-    c.workqueue.Add(key)
+func (c *Controller) handleAdd(obj interface{}) {
+	klog.Info("handleAdd is here!!!")
+	c.wq.Add(obj)
 }
 
-func (c *controller) handleAdd(obj interface{}) {
-    c.handleObject(obj)
-}
-
-func (c *controller) handleUpdate(oldObj, newObj interface{}) {
-    oldCustom := oldObj.(*V1alpha1.Customcluster)                         
-    newCustom := newObj.(*V1alpha1.Customcluster)                         
-    if oldCustom.Spec.Count != newCustom.Spec.Count || oldCustom.Spec.Message != newCustom.Spec.Message {
-        // Periodic resync will send update events for all known CustomClusters.
-        // Two different versions of the same CustomCluster will always have different RVs.
-        cnt :=newCustom.Spec.Count-oldCustom.Spec.Count
-        c.updatePods(oldCustom,newCustom,cnt)
-    }
-    c.handleObject(newObj)
-}
-
-func (c *controller) handleDel(obj interface{}) {
-    key, err := cache.DeletionHandlingMetaNamespaceKeyFunc(obj)
-    if err != nil {
-        runtime.HandleError(fmt.Errorf("failed to get key for object %+v: %v", obj, err))
-        return
-    }
-    c.workqueue.Add(key)
+func (c *Controller) handleDel(obj interface{}) {
+	klog.Info("handleDel is here!!")
+	c.wq.Done(obj)
 }

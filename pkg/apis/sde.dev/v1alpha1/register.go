@@ -40,6 +40,7 @@ var (
 )
 
 func init(){
+	//function will register our specified type to scheme
 	SchemeBuilder.Register(addKnownTypes)
 }
 

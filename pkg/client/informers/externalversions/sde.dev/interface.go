@@ -44,3 +44,9 @@ func New(f internalinterfaces.SharedInformerFactory, namespace string, tweakList
 func (g *group) V1alpha1() v1alpha1.Interface {
 	return v1alpha1.New(g.factory, g.namespace, g.tweakListOptions)
 }
+
+/*// TrackPods returns a TrackPodInformer.
+func (g *group) Customclusters() CustomclusterInformer{
+	return &customclusterInformer{factory: g.factory, namespace: g.namespace, tweakListOptions: g.tweakListOptions}
+}
+*/

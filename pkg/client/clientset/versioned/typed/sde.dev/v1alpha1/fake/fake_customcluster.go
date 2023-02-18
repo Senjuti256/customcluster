@@ -27,6 +27,7 @@ import (
 	types "k8s.io/apimachinery/pkg/types"
 	watch "k8s.io/apimachinery/pkg/watch"
 	testing "k8s.io/client-go/testing"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // FakeCustomclusters implements CustomclusterInterface
@@ -100,6 +101,19 @@ func (c *FakeCustomclusters) Update(ctx context.Context, customcluster *v1alpha1
 	}
 	return obj.(*v1alpha1.Customcluster), err
 }
+
+// UpdateStatus was generated because the type contains a Status member.
+// Add a +genclient:noStatus comment above the type to avoid generating UpdateStatus().
+func (c *FakeCustomclusters) UpdateStatus(ctx context.Context, customcluster *v1alpha1.Customcluster, opts metav1.UpdateOptions) (*v1alpha1.Customcluster, error) {
+	obj, err := c.Fake.
+		Invokes(testing.NewUpdateSubresourceAction(customclustersResource, "status", c.ns, customcluster), &v1alpha1.Customcluster{})
+
+	if obj == nil {
+		return nil, err
+	}
+	return obj.(*v1alpha1.Customcluster), err
+}
+
 
 // Delete takes name of the customcluster and deletes it. Returns an error if one occurs.
 func (c *FakeCustomclusters) Delete(ctx context.Context, name string, opts v1.DeleteOptions) error {

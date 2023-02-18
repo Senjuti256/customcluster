@@ -28,6 +28,7 @@ import (
 	types "k8s.io/apimachinery/pkg/types"
 	watch "k8s.io/apimachinery/pkg/watch"
 	rest "k8s.io/client-go/rest"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // CustomclustersGetter has a method to return a CustomclusterInterface.
@@ -45,6 +46,7 @@ type CustomclusterInterface interface {
 	Get(ctx context.Context, name string, opts v1.GetOptions) (*v1alpha1.Customcluster, error)
 	List(ctx context.Context, opts v1.ListOptions) (*v1alpha1.CustomclusterList, error)
 	Watch(ctx context.Context, opts v1.ListOptions) (watch.Interface, error)
+	UpdateStatus(ctx context.Context, customcluster *v1alpha1.Customcluster, opts metav1.UpdateOptions) (*v1alpha1.Customcluster, error)
 	Patch(ctx context.Context, name string, pt types.PatchType, data []byte, opts v1.PatchOptions, subresources ...string) (result *v1alpha1.Customcluster, err error)
 	CustomclusterExpansion
 }
@@ -134,6 +136,23 @@ func (c *customclusters) Update(ctx context.Context, customcluster *v1alpha1.Cus
 		Into(result)
 	return
 }
+
+// UpdateStatus was generated because the type contains a Status member.
+// Add a +genclient:noStatus comment above the type to avoid generating UpdateStatus().
+func (c *customclusters) UpdateStatus(ctx context.Context, cpod *v1alpha1.Customcluster, opts metav1.UpdateOptions) (result *v1alpha1.Customcluster, err error) {
+	result = &v1alpha1.Customcluster{}
+	err = c.client.Put().
+		Namespace(c.ns).
+		Resource("customclusters").
+		Name(cpod.Name).
+		SubResource("status").
+		VersionedParams(&opts, scheme.ParameterCodec).
+		Body(cpod).
+		Do(ctx).
+		Into(result)
+	return
+}
+
 
 // Delete takes name of the customcluster and deletes it. Returns an error if one occurs.
 func (c *customclusters) Delete(ctx context.Context, name string, opts v1.DeleteOptions) error {

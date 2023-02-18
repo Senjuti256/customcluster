@@ -20,9 +20,9 @@ spec:
             spec:
               type: object
               properties:
-                count:
+                Count:
                   type: integer
-                message:
+                Message:
                   type: string
   # either Namespaced or ClusterIP
   scope: Namespaced
