@@ -123,7 +123,7 @@ func (c *Controller) worker() {
 // processNextWorkItem will read a single work item existing in the workqueue and
 // attempt to process it, by calling the syncHandler.
 func (c *Controller) processNextItem() bool {
-	klog.Info("Inside processNextItem")
+	klog.Info("Inside processNextItem method")
 	item, shutdown := c.wq.Get()
 	if shutdown {
 		klog.Info("Shutting down")
@@ -210,8 +210,8 @@ func (c *Controller) syncHandler(cpod *v1alpha1.Customcluster, pList *corev1.Pod
 	itr := cpod.Spec.Count
 	deleteItr := 0
 	runningPods := c.totalRunningPods(cpod)
-	klog.Info("Total pods running %v",runningPods)
-	
+	klog.Info("Total pods running ",runningPods)
+
 	if runningPods != cpod.Spec.Count || cpod.Spec.Message != cpod.Status.Message {
 		if runningPods > 0 && cpod.Spec.Message != cpod.Status.Message {
 			klog.Warningf("the message of Customcluster %v resource has been modified, recreating the pods\n", cpod.Name)
@@ -328,6 +328,7 @@ func (c *Controller) updateStatus(cpod *v1alpha1.Customcluster, progress string,
 		return err
 	}
     fmt.Println("Got the total pods running")
+	klog.Info("Running pods=",totrunningPods)
 	t.Status.Count = totrunningPods
 	t.Status.Message = progress
 	_, err = c.cpodClient.SamplecontrollerV1alpha1().Customclusters(cpod.Namespace).UpdateStatus(context.Background(), t, metav1.UpdateOptions{})
