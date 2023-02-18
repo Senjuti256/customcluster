@@ -210,7 +210,8 @@ func (c *Controller) syncHandler(cpod *v1alpha1.Customcluster, pList *corev1.Pod
 	itr := cpod.Spec.Count
 	deleteItr := 0
 	runningPods := c.totalRunningPods(cpod)
-
+	klog.Info("Total pods running %v",runningPods)
+	
 	if runningPods != cpod.Spec.Count || cpod.Spec.Message != cpod.Status.Message {
 		if runningPods > 0 && cpod.Spec.Message != cpod.Status.Message {
 			klog.Warningf("the message of Customcluster %v resource has been modified, recreating the pods\n", cpod.Name)
@@ -232,8 +233,7 @@ func (c *Controller) syncHandler(cpod *v1alpha1.Customcluster, pList *corev1.Pod
         }
 	}
 
-	// Delete extra pod
-	// TODO: Detect the manually created pod, and delete that specific pod.
+	//Detect the manually created pod, and delete that specific pod.
 	if Deletepod {
 		for i := 0; i < deleteItr; i++ {
 			err := c.kubeClient.CoreV1().Pods(cpod.Namespace).Delete(context.TODO(), pList.Items[i].Name, metav1.DeleteOptions{})
@@ -283,7 +283,7 @@ func newPod(cpod *v1alpha1.Customcluster) *corev1.Pod {
 		Spec: corev1.PodSpec{
 			Containers: []corev1.Container{
 				{
-					Name:  "static-nginx",
+					Name:  "my-nginx",
 					Image: "nginx:latest",
 					Env: []corev1.EnvVar{
 						{
@@ -311,8 +311,7 @@ func (c *Controller) waitForPods(cpod *v1alpha1.Customcluster, pList *corev1.Pod
 
 	return poll.Wait(ctx, func(ctx context.Context) (bool, error) {
 		runningPods := c.totalRunningPods(cpod)
-		// fmt.Println("Inside waitforPods ???? totalrunningPods >>>> ", runningPods)
-
+        klog.Info("Total pods running %v",runningPods)
 		if runningPods == cpod.Spec.Count {
 			return true, nil
 		}
@@ -331,18 +330,17 @@ func (c *Controller) updateStatus(cpod *v1alpha1.Customcluster, progress string,
     fmt.Println("Got the total pods running")
 	t.Status.Count = totrunningPods
 	t.Status.Message = progress
-	 //fmt.Println("Inside updatestatus >>>>>>>>>>> ", t.Status.Message)
 	_, err = c.cpodClient.SamplecontrollerV1alpha1().Customclusters(cpod.Namespace).UpdateStatus(context.Background(), t, metav1.UpdateOptions{})
 
 	return err
 }
 
 func (c *Controller) handleAdd(obj interface{}) {
-	klog.Info("handleAdd is here!!!")
+	klog.Info("Inside handleAdd!!!")
 	c.wq.Add(obj)
 }
 
 func (c *Controller) handleDel(obj interface{}) {
-	klog.Info("handleDel is here!!")
+	klog.Info("Inside handleDel!!")
 	c.wq.Done(obj)
 }
