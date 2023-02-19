@@ -122,6 +122,7 @@ func (c *Controller) worker() {
 
 // processNextWorkItem will read a single work item existing in the workqueue and
 // attempt to process it, by calling the syncHandler.
+/*
 func (c *Controller) processNextItem() bool {
 	klog.Info("Inside processNextItem method")
 	item, shutdown := c.wq.Get()
@@ -180,6 +181,70 @@ func (c *Controller) processNextItem() bool {
 
     fmt.Println("Calling update status again!!")
 	err = c.updateStatus(cpod, cpod.Spec.Message, pList)
+	if err != nil {
+		klog.Errorf("error %s updating status after waiting for Pods", err.Error())              //**error
+	}
+
+	return true
+}
+*/
+
+func (c *Controller) processNextItem() bool {
+	klog.Info("Inside processNextItem method")
+	item, shutdown := c.wq.Get()
+	if shutdown {
+		klog.Info("Shutting down")
+		return false
+	}
+
+	defer c.wq.Forget(item)
+	key, err := cache.MetaNamespaceKeyFunc(item)
+	if err != nil {
+		klog.Errorf("error while calling Namespace Key func on cache for item %s: %s", item, err.Error())
+		return false
+	}
+    klog.Info("Trying to get namespace and name")
+	ns, name, err := cache.SplitMetaNamespaceKey(key)
+	if err != nil {
+		klog.Errorf("error while splitting key into namespace & name: %s", err.Error())
+		return false
+	}
+
+	foo, err := c.cpodlister.Customclusters(ns).Get(name)
+	klog.Info("cpod is ",foo.Name)
+	klog.Info("cpod is ",foo.Namespace)
+	//klog.Info("cpod is",foo.Spec)
+	klog.Info("cpod is ",foo.Spec.Count)
+	klog.Info("cpod is ",foo.Spec.Message)
+	if err != nil {
+		klog.Errorf("error %s, Getting the foo resource from lister.", err.Error())
+		return false
+	}
+
+	// filter out if required pods are already available or not:
+	labelSelector := metav1.LabelSelector{
+		MatchLabels: map[string]string{
+			"controller": foo.Name,
+		},
+	}
+	listOptions := metav1.ListOptions{
+		LabelSelector: labels.Set(labelSelector.MatchLabels).String(),
+	}
+	// TODO: Prefer using podLister to reduce the call to K8s API.
+	podsList, _ := c.kubeClient.CoreV1().Pods(foo.Namespace).List(context.TODO(), listOptions)
+
+	if err := c.syncHandler(foo, podsList); err != nil {
+		klog.Errorf("Error while syncing the current vs desired state for TrackPod %v: %v\n", foo.Name, err.Error())
+		return false
+	}
+    // wait for pods to be ready
+	err = c.waitForPods(foo, podsList)
+	if err != nil {
+		klog.Errorf("error %s, waiting for pods to meet the expected state", err.Error())
+	}
+
+    fmt.Println("Calling update status again!!")
+	err = c.updateStatus(foo, foo.Spec.Message, podsList)
 	if err != nil {
 		klog.Errorf("error %s updating status after waiting for Pods", err.Error())              //**error
 	}
