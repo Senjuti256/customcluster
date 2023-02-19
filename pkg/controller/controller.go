@@ -22,7 +22,10 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 )
+
+const controllerAgentName = "custom-controller"
 
 const (
 	// SuccessSynced is used as part of the Event 'reason' when a Foo is synced
@@ -192,6 +195,8 @@ func (c *Controller) processNextItem() bool {
 }
 */
 
+
+/*
 func (c *Controller) processNextItem() bool {
 	klog.Info("Inside processNextItem method")
 	item, shutdown := c.wq.Get()
@@ -420,5 +425,329 @@ func (c *Controller) handleAdd(obj interface{}) {
 
 func (c *Controller) handleDel(obj interface{}) {
 	klog.Info("Inside handleDel!!")
+	c.wq.Done(obj)
+}
+*/
+
+func (c *Controller) processNextItem() bool {
+	klog.Info("Inside processNextItem method")
+	obj, shutdown := c.wq.Get()
+	if shutdown {
+		klog.Info("Shutting down")
+		return false
+	}
+   /*
+	err := func(obj interface{}) error{
+	    defer c.wq.Forget(item)
+
+	
+
+    if err := c.syncHandler(item.(string)); err != nil {
+
+	   klog.Fatalf("Error syncing the current and desired state--%s",err.Error())
+	   return false
+    }
+    klog.Info("successfully synced ",item.(string))
+
+    return true*/
+	// We wrap this block in a func so we can defer c.workqueue.Done.
+	err := func(obj interface{}) error {
+		// We call Done here so the workqueue knows we have finished
+		// processing this item. We also must remember to call Forget if we
+		// do not want this work item being re-queued. For example, we do
+		// not call Forget if a transient error occurs, instead the item is
+		// put back on the workqueue and attempted again after a back-off
+		// period.
+		defer c.wq.Done(obj)
+		var key string
+		var ok bool
+		// We expect strings to come off the workqueue. These are of the
+		// form namespace/name. We do this as the delayed nature of the
+		// workqueue means the items in the informer cache may actually be
+		// more up to date that when the item was initially put onto the
+		// workqueue.
+		if key, ok = obj.(string); !ok {
+			// As the item in the workqueue is actually invalid, we call
+			// Forget here else we'd go into a loop of attempting to
+			// process a work item that is invalid.
+			c.wq.Forget(obj)
+			utilruntime.HandleError(fmt.Errorf("expected string in workqueue but got %#v", obj))
+			return nil
+		}
+		// Run the syncHandler, passing it the namespace/name string of the
+		// Foo resource to be synced.
+		if err := c.syncHandler(key); err != nil {
+			// Put the item back on the workqueue to handle any transient errors.
+			c.wq.AddRateLimited(key)
+			return fmt.Errorf("error syncing '%s': %s, requeuing", key, err.Error())
+		}
+		// Finally, if no error occurs we Forget this item so it does not
+		// get queued again until another change happens.
+		c.wq.Forget(obj)
+		klog.Infof("Successfully synced '%s'", key)
+		return nil
+	}(obj)
+
+	if err != nil {
+		utilruntime.HandleError(err)
+		return true
+	}
+
+	return true
+}
+
+// syncHandler compares the actual state with the desired, and attempts to
+// converge the two. It then updates the Status block of the Foo resource
+// with the current status of the resource.
+func (c *Controller) syncHandler(key string) error {
+	// Convert the namespace/name string into a distinct namespace and name
+	namespace, name, err := cache.SplitMetaNamespaceKey(key)
+	if err != nil {
+		utilruntime.HandleError(fmt.Errorf("invalid resource key: %s", key))
+		return nil
+	}
+
+	// Get the Foo resource with this namespace/name
+	cpod, err := c.cpodlister.Customclusters(namespace).Get(name)
+	if err != nil {
+		// The Foo resource may no longer exist, in which case we stop
+		// processing.
+		if errors.IsNotFound(err) {
+			utilruntime.HandleError(fmt.Errorf("foo '%s' in work queue no longer exists", key))
+			return nil
+		}
+
+		return err
+	}
+
+	labelSelector := metav1.LabelSelector{
+		MatchLabels: map[string]string{
+			"controller": cpod.Name, 
+		},
+	}
+	listOptions := metav1.ListOptions{
+		LabelSelector: labels.Set(labelSelector.MatchLabels).String(),
+	}
+
+	pList, err := c.kubeClient.CoreV1().Pods(cpod.Namespace).List(context.TODO(), listOptions)
+
+	klog.Info("In the syncHandler to sync pods")
+	
+	if err := c.syncPods(cpod, pList); err != nil {
+		klog.Fatalf("Error while syncing the current vs desired state for App %v: %v\n", cpod.Name, err.Error())
+		
+	}
+	
+	klog.Info("synced pods successfully\n")
+
+	err = c.waitForPods(cpod, pList)
+	if err != nil {
+		klog.Fatalf("error %s, waiting for pods to meet the expected state", err.Error())
+		
+	}
+	// Finally, we update the status block of the Foo resource to reflect the
+	// current state of the world
+
+	klog.Info("successfully waited for pods")
+
+    klog.Info("\n-------Message---------",cpod.Spec.Message)
+	klog.Info("\n-------Count---------",cpod.Spec.Count)
+
+
+	err = c.updateStatus(cpod, cpod.Spec.Message, pList)
+	if err != nil {
+		return err
+	}
+
+	klog.Info("successfully updated status")
+
+	return nil
+}
+
+func (c *Controller) syncPods(cpod *v1alpha1.Customcluster, pList *corev1.PodList) error {
+	newPods := cpod.Spec.Count
+	klog.Info("\n-------Count inside syncPods--------",cpod.Spec.Count)
+
+	currentPods := c.getCurrentPods(cpod)
+	klog.Info("\n-------Current cnt of running pods-------",currentPods)
+
+	newMessage := cpod.Spec.Message
+    klog.Info("\n-------Message inside syncPods--------",cpod.Spec.Message)
+
+	currentMessage := cpod.Status.Message
+	klog.Info("\n-------Message inside syncPods--------",cpod.Status.Message)
+
+	var ifDelete, ifCreate bool
+	numCreate := newPods             //int(*&newPods)
+	numDelete := 0
+
+	if newPods != currentPods || newMessage != currentMessage {
+		if newMessage != currentMessage {
+			ifDelete = true
+			ifCreate = true
+			numCreate = newPods             //&
+			numDelete = currentPods
+		} else {
+			if currentPods < newPods {            //&
+				ifCreate = true
+				numCreate = newPods - currentPods           //&
+			} else if currentPods > newPods {               //&
+				ifDelete = true
+				numDelete = currentPods - newPods           //&
+			}
+		}
+	}
+
+	if ifDelete {
+		klog.Info("pods are getting deletes ", numDelete)
+		
+		for i:= 0; i < numDelete ; i++ {
+			err := c.kubeClient.CoreV1().Pods(cpod.Namespace).Delete(context.TODO(), pList.Items[i].Name, metav1.DeleteOptions{})
+			if err != nil {
+				klog.Fatalf("error while deleting the pods %v", cpod.Name)
+				return err
+			}
+		}
+		klog.Info("pods deleted successfully")
+		
+	}
+
+	if ifCreate {
+		klog.Info("pods are getting created ", numCreate)
+		for i := 0; i < numCreate ; i++ {
+			newcpod, err := c.kubeClient.CoreV1().Pods(cpod.Namespace).Create(context.TODO(), newPod(cpod), metav1.CreateOptions{})
+			if err != nil {
+				if errors.IsAlreadyExists(err) {
+					numCreate++
+				} else {
+					klog.Fatalf("error in creating pods %v", cpod.Name)
+					return err
+				}
+			} 
+			if newcpod.Name != "" {
+				klog.Info("Created!")
+			}
+		}
+	}
+
+	return nil
+}
+
+func (c *Controller) waitForPods(cpod *v1alpha1.Customcluster, psList *corev1.PodList) error {
+	klog.Info("waiting for pods to be in running state")
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
+	defer cancel()
+
+	return poll.Wait(ctx, func(ctx context.Context) (bool, error) {
+		currentPods := c.getCurrentPods(cpod)
+
+		if currentPods == int(cpod.Spec.Count) {                                   //& added
+			return true, nil
+		}
+		return false, nil
+	})
+}
+
+func (c *Controller) getCurrentPods(cr *v1alpha1.Customcluster) int {
+	klog.Info("calculating total number of running pods")
+	labelSelector := metav1.LabelSelector{
+		MatchLabels: map[string]string{
+			"controller": cr.Name,
+		},
+	}
+	listOptions := metav1.ListOptions{
+		LabelSelector: labels.Set(labelSelector.MatchLabels).String(),
+	}
+	psList, _ := c.kubeClient.CoreV1().Pods(cr.Namespace).List(context.TODO(), listOptions)
+	
+	currentPods := 0
+
+	for _,pod := range psList.Items {
+		if pod.ObjectMeta.DeletionTimestamp.IsZero() && pod.Status.Phase == "Running" {
+			currentPods++
+		}
+	}
+
+	klog.Info("Total number of running pods are ", currentPods)
+
+	return currentPods
+}
+
+func (c *Controller) updateStatus(cp *v1alpha1.Customcluster, message string, psList *corev1.PodList) error {
+
+	cpCopy, err := c.cpodClient.SamplecontrollerV1alpha1().Customclusters(cp.Namespace).Get(context.TODO(), cp.Name, metav1.GetOptions{})
+	currentPods := c.getCurrentPods(cp)
+	if err != nil {
+		return err
+	}
+
+	cpCopy.Status.Count = currentPods
+	cpCopy.Status.Message = message
+
+	klog.Info("updating status")
+	_, err = c.cpodClient.SamplecontrollerV1alpha1().Customclusters(cp.Namespace).UpdateStatus(context.TODO(), cpCopy, metav1.UpdateOptions{})
+
+	klog.Info("updates status with error = ", err.Error())
+
+	return err
+
+
+}
+
+func newPod(app *v1alpha1.Customcluster) *corev1.Pod {
+	klog.Info("new pods creation function")
+	labels := map[string]string{
+		"controller": app.Name,
+	}
+	return &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Labels: labels,
+			Name: fmt.Sprintf(app.Name + "-" + strconv.Itoa(rand.Intn(100000000))),
+			Namespace: app.Namespace,
+			OwnerReferences: []metav1.OwnerReference{
+				*metav1.NewControllerRef(app, v1alpha1.SchemeGroupVersion.WithKind("App")),
+			},
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name: "nginx",
+					Image: "nginx:latest",
+					Env: []corev1.EnvVar{
+						{
+							Name: "MESSAGE",
+							Value: app.Spec.Message,
+						},
+					},
+					Command: []string{
+						"/bin/sh",
+					},
+					Args: []string{
+						"-c",
+						"while true; do echo '$(MESSAGE)'; sleep 100; done",
+					},
+				},
+
+			},
+		},
+	}
+} 
+
+
+func (c *Controller) handleAdd(obj interface{}) {
+	klog.Info("In the createHandler")
+	klog.Info("\n--------------------------------------------------\n")
+	var key string
+	var err error
+	if key, err = cache.MetaNamespaceKeyFunc(obj); err != nil {
+		utilruntime.HandleError(err)
+		return
+	}
+	c.wq.Add(key)
+}
+
+func (c *Controller) handleDel(obj interface{}) {
+	klog.Info("In the deleteHandler")
+	klog.Info("\n--------------------------------------------------\n")
 	c.wq.Done(obj)
 }

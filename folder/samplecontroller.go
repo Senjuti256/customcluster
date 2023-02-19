@@ -95,7 +95,7 @@ type controller struct {
 }
 */
 
-func NewController(kubeClient kubernetes.Interface, customClient clientset.Interface, cpodInformer cInformer.CustomclusterInformer) *controller {
+func newController(kubeClient kubernetes.Interface, customClient clientset.Interface, cpodInformer cInformer.CustomclusterInformer) *controller {
 	c := &controller{
 		kubeclient:   kubeClient,
 		customclient: customClient,
