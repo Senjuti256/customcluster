@@ -145,6 +145,12 @@ func (c *Controller) processNextItem() bool {
 	}
 
 	cpod, err := c.cpodlister.Customclusters(ns).Get(name)
+	klog.Info("cpod is",cpod.Name)
+	klog.Info("cpod is",cpod.Namespace)
+	klog.Info("cpod is",cpod.Spec)
+	klog.Info("cpod is",cpod.Spec.Count)
+	c1,err:=c.cpodClient.SamplecontrollerV1alpha1().Customclusters(ns).Get(context.TODO(),name,metav1.GetOptions{})
+	klog.Info(c1.Spec.Count)
 	if err != nil {
 		klog.Errorf("error %s, Getting the cpod resource from lister.", err.Error())
 		return false
@@ -160,7 +166,7 @@ func (c *Controller) processNextItem() bool {
 		LabelSelector: labels.Set(labelSelector.MatchLabels).String(),
 	}
 	pList, _ := c.kubeClient.CoreV1().Pods(cpod.Namespace).List(context.TODO(), listOptions)
-
+    klog.Info("Count ",cpod.Spec.Count)
 	if err := c.syncHandler(cpod, pList); err != nil {
 		klog.Errorf("Error while syncing the current vs desired state for the resource of kind Customcluster %v: %v\n", cpod.Name, err.Error())
 		return false
@@ -172,10 +178,10 @@ func (c *Controller) processNextItem() bool {
 		klog.Errorf("error %s, waiting for pods to meet the expected state", err.Error())
 	}
 
-	// fmt.Println("Calling update status again!!")
+    fmt.Println("Calling update status again!!")
 	err = c.updateStatus(cpod, cpod.Spec.Message, pList)
 	if err != nil {
-		klog.Errorf("error %s updating status after waiting for Pods", err.Error())
+		klog.Errorf("error %s updating status after waiting for Pods", err.Error())              //**error
 	}
 
 	return true
@@ -184,9 +190,8 @@ func (c *Controller) processNextItem() bool {
 // total number of 'Running' pods
 func (c *Controller) totalRunningPods(cpod *v1alpha1.Customcluster) int {
 	labelSelector := metav1.LabelSelector{
-		MatchLabels: map[string]string{
-			"controller": cpod.Name,
-		},
+		MatchLabels:      map[string]string{"controller": cpod.Name},
+		MatchExpressions: []metav1.LabelSelectorRequirement{},                               //*
 	}
 	listOptions := metav1.ListOptions{
 		LabelSelector: labels.Set(labelSelector.MatchLabels).String(),
@@ -211,6 +216,7 @@ func (c *Controller) syncHandler(cpod *v1alpha1.Customcluster, pList *corev1.Pod
 	deleteItr := 0
 	runningPods := c.totalRunningPods(cpod)
 	klog.Info("Total pods running ",runningPods)
+	klog.Info("Count of pods ",cpod.Spec.Count)
 
 	if runningPods != cpod.Spec.Count || cpod.Spec.Message != cpod.Status.Message {
 		if runningPods > 0 && cpod.Spec.Message != cpod.Status.Message {
@@ -248,7 +254,9 @@ func (c *Controller) syncHandler(cpod *v1alpha1.Customcluster, pList *corev1.Pod
 	if Createpod {
 		for i := 0; i < itr; i++ {
 			nPod, err := c.kubeClient.CoreV1().Pods(cpod.Namespace).Create(context.TODO(), newPod(cpod), metav1.CreateOptions{})
+			klog.Info("Error ",err)
 			if err != nil {
+
 				if errors.IsAlreadyExists(err) {
 					// retry (might happen when the same named pod is created again)
 					itr++
