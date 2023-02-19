@@ -61,6 +61,7 @@ type Controller struct {
 
 // returns a new customcluster controller
 func NewController(kubeClient kubernetes.Interface, cpodClient cClientSet.Interface, cpodInformer cInformer.CustomclusterInformer) *Controller {
+	klog.Info("NewController is called\n")
 	c := &Controller{
 		kubeClient: kubeClient,
 		cpodClient: cpodClient,
@@ -68,7 +69,8 @@ func NewController(kubeClient kubernetes.Interface, cpodClient cClientSet.Interf
 		cpodlister: cpodInformer.Lister(),
 		wq:         workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "Customcluster"),
 	}
-
+    klog.Info("NewController made\n")
+    klog.Info("Setting up event handlers")
 	// event handler when the custom resources are added/deleted/updated.
 	cpodInformer.Informer().AddEventHandler(
 		cache.ResourceEventHandlerFuncs{
@@ -84,7 +86,7 @@ func NewController(kubeClient kubernetes.Interface, cpodClient cClientSet.Interf
 			DeleteFunc: c.handleDel,
 		},
 	)
-
+    klog.Info("Returning controller object \n")
 	return c
 }
 
@@ -96,16 +98,17 @@ func (c *Controller) Run(ch chan struct{}) error {
 	defer c.wq.ShutDown()
 
 	// Start the informer factories to begin populating the informer caches
-	klog.Info("Starting the Customcluster controller")
+	klog.Info("Starting the Customcluster controller\n")
+	klog.Info("Waiting for informer caches to sync\n")
 
 	// Wait for the caches to be synced before starting workers
 	if ok := cache.WaitForCacheSync(ch, c.cpodSync); !ok {
 		log.Println("failed to wait for cache to sync")
 	}
 	// Launch the goroutine for workers to process the CR
-	klog.Info("Starting workers")
+	klog.Info("Starting workers\n")
 	go wait.Until(c.worker, time.Second, ch)
-	klog.Info("Started workers")
+	klog.Info("Started workers\n")
 	<-ch
 	klog.Info("Shutting down the worker")
 
@@ -198,6 +201,7 @@ func (c *Controller) processNextItem() bool {
 	}
 
 	defer c.wq.Forget(item)
+
 	key, err := cache.MetaNamespaceKeyFunc(item)
 	if err != nil {
 		klog.Errorf("error while calling Namespace Key func on cache for item %s: %s", item, err.Error())

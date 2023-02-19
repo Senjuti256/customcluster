@@ -1,4 +1,4 @@
-apiVersion: "sde.dev/v1alpha1"
+apiVersion: sde.dev/v1alpha1
 kind: Customcluster
 metadata:
   name: cpod-cr
