@@ -33,14 +33,14 @@ spec:
             spec:
               type: object
               properties:
-                Message:
+                message:
                   type: string
-                Count:
+                count:
                   type: integer
             status:
               type: object
               properties:
-                Message:
+                message:
                   type: string
-                Count:
+                count:
                   type: integer

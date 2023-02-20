@@ -1,7 +1,7 @@
 apiVersion: sde.dev/v1alpha1
 kind: Customcluster
 metadata:
-  name: cpod-cr
+  name: cpod-f
 spec:
-  Message: "Trying to create my own custom resource"
-  Count: 5
+  message: "Trying to create my own custom resource"
+  count: 5

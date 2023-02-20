@@ -459,20 +459,6 @@ func (c *Controller) processNextItem() bool {
 		klog.Info("Shutting down")
 		return false
 	}
-   /*
-	err := func(obj interface{}) error{
-	    defer c.wq.Forget(item)
-
-	
-
-    if err := c.syncHandler(item.(string)); err != nil {
-
-	   klog.Fatalf("Error syncing the current and desired state--%s",err.Error())
-	   return false
-    }
-    klog.Info("successfully synced ",item.(string))
-
-    return true*/
 	// We wrap this block in a func so we can defer c.workqueue.Done.
 	err := func(obj interface{}) error {
 		// We call Done here so the workqueue knows we have finished
@@ -501,8 +487,8 @@ func (c *Controller) processNextItem() bool {
 		// Foo resource to be synced.
 		if err := c.syncHandler(key); err != nil {
 			// Put the item back on the workqueue to handle any transient errors.
-			c.wq.AddRateLimited(key)
-			return fmt.Errorf("error syncing '%s': %s, requeuing", key, err.Error())
+			//c.wq.AddRateLimited(key)
+			return nil//fmt.Errorf("error syncing '%s': %s, requeuing", key, err.Error())
 		}
 		// Finally, if no error occurs we Forget this item so it does not
 		// get queued again until another change happens.
@@ -554,7 +540,7 @@ func (c *Controller) syncHandler(key string) error {
 
 	pList, err := c.kubeClient.CoreV1().Pods(cpod.Namespace).List(context.TODO(), listOptions)
 
-	klog.Info("In the syncHandler to sync pods")
+	klog.Info("In the syncHandler to sync pods",pList,"     ",cpod)
 	
 	if err := c.syncPods(cpod, pList); err != nil {
 		klog.Fatalf("Error while syncing the current vs desired state for App %v: %v\n", cpod.Name, err.Error())
@@ -605,12 +591,15 @@ func (c *Controller) syncPods(cpod *v1alpha1.Customcluster, pList *corev1.PodLis
 	numDelete := 0
 
 	if newPods != currentPods || newMessage != currentMessage {
+		klog.Info("Entering the first block")
 		if newMessage != currentMessage {
+			klog.Info("Entering the first-1 block")
 			ifDelete = true
 			ifCreate = true
 			numCreate = newPods             //&
 			numDelete = currentPods
 		} else {
+            klog.Info("Entering the first-2 block")
 			if currentPods < newPods {            //&
 				ifCreate = true
 				numCreate = newPods - currentPods           //&
@@ -622,6 +611,7 @@ func (c *Controller) syncPods(cpod *v1alpha1.Customcluster, pList *corev1.PodLis
 	}
 
 	if ifDelete {
+		klog.Info("Entering the second block")
 		klog.Info("pods are getting deletes ", numDelete)
 		
 		for i:= 0; i < numDelete ; i++ {
@@ -636,9 +626,10 @@ func (c *Controller) syncPods(cpod *v1alpha1.Customcluster, pList *corev1.PodLis
 	}
 
 	if ifCreate {
+		klog.Info("Entering the third block")
 		klog.Info("pods are getting created ", numCreate)
 		for i := 0; i < numCreate ; i++ {
-			newcpod, err := c.kubeClient.CoreV1().Pods(cpod.Namespace).Create(context.TODO(), newPod(cpod), metav1.CreateOptions{})
+			newcpod, err := c.kubeClient.CoreV1().Pods(cpod.Namespace).Create(context.TODO(), createPod(cpod), metav1.CreateOptions{})
 			if err != nil {
 				if errors.IsAlreadyExists(err) {
 					numCreate++
@@ -653,6 +644,10 @@ func (c *Controller) syncPods(cpod *v1alpha1.Customcluster, pList *corev1.PodLis
 		}
 	}
 
+/*klog.Info("Creating a new pod ")
+newcpod, err := c.kubeClient.CoreV1().Pods(cpod.Namespace).Create(context.TODO(), newPod(cpod), metav1.CreateOptions{})
+klog.Info("New Pod created", newcpod)
+klog.Info("Error ",err)*/
 	return nil
 }
 
@@ -717,7 +712,7 @@ func (c *Controller) updateStatus(cp *v1alpha1.Customcluster, message string, ps
 
 }
 
-func newPod(app *v1alpha1.Customcluster) *corev1.Pod {
+func createPod(app *v1alpha1.Customcluster) *corev1.Pod {
 	klog.Info("new pods creation function")
 	labels := map[string]string{
 		"controller": app.Name,
