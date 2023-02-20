@@ -22,7 +22,7 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
-	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	//utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 )
 
 const controllerAgentName = "custom-controller"
@@ -65,21 +65,6 @@ type Controller struct {
 // returns a new customcluster controller
 func NewController(kubeClient kubernetes.Interface, cpodClient cClientSet.Interface, cpodInformer cInformer.CustomclusterInformer) *Controller {
 	klog.Info("NewController is called\n")
-
-    //CustomclusterInformer informers.CustomclusterInformer) *Controller {
-
-		// Create event broadcaster
-		// Add sample-controller types to the default Kubernetes Scheme so Events can be
-		// logged for sample-controller types.
-		/*utilruntime.Must(samplescheme.AddToScheme(scheme.Scheme))
-		klog.V(4).Info("Creating event broadcaster")
-		eventBroadcaster := record.NewBroadcaster()
-		eventBroadcaster.StartStructuredLogging(0)
-		eventBroadcaster.StartRecordingToSink(&typedcorev1.EventSinkImpl{Interface: kubeclientset.CoreV1().Events("")})
-		recorder := eventBroadcaster.NewRecorder(scheme.Scheme, corev1.EventSource{Component: controllerAgentName})
-	
-	*/
-	
 	c := &Controller{
 		kubeClient: kubeClient,
 		cpodClient: cpodClient,
@@ -89,14 +74,6 @@ func NewController(kubeClient kubernetes.Interface, cpodClient cClientSet.Interf
 	}
     klog.Info("NewController made\n")
     klog.Info("Setting up event handlers")
-
-	/*CustomclusterInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc: c.handleAdd,
-		UpdateFunc: func(old,new interface{}){
-			c.handleAdd(new)
-		},
-	})*/
-
 	// event handler when the custom resources are added/deleted/updated.
 	cpodInformer.Informer().AddEventHandler(
 		cache.ResourceEventHandlerFuncs{
@@ -151,7 +128,7 @@ func (c *Controller) worker() {
 
 // processNextWorkItem will read a single work item existing in the workqueue and
 // attempt to process it, by calling the syncHandler.
-/*
+
 func (c *Controller) processNextItem() bool {
 	klog.Info("Inside processNextItem method")
 	item, shutdown := c.wq.Get()
@@ -216,7 +193,7 @@ func (c *Controller) processNextItem() bool {
 
 	return true
 }
-*/
+
 
 
 /*
@@ -282,7 +259,7 @@ func (c *Controller) processNextItem() bool {
 	}
 
 	return true
-}
+}*/
 
 // total number of 'Running' pods
 func (c *Controller) totalRunningPods(cpod *v1alpha1.Customcluster) int {
@@ -409,14 +386,14 @@ func newPod(cpod *v1alpha1.Customcluster) *corev1.Pod {
 	}
 }
 
-// If the pod doesn't switch to a running state within 10 minutes, shall report.
+// If the pod doesn't switch to a running state within 5 minutes, shall report.
 func (c *Controller) waitForPods(cpod *v1alpha1.Customcluster, pList *corev1.PodList) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
 	return poll.Wait(ctx, func(ctx context.Context) (bool, error) {
 		runningPods := c.totalRunningPods(cpod)
-        klog.Info("Total pods running %v",runningPods)
+        klog.Info("Total pods running  ",runningPods)
 		if runningPods == cpod.Spec.Count {
 			return true, nil
 		}
@@ -450,8 +427,29 @@ func (c *Controller) handleDel(obj interface{}) {
 	klog.Info("Inside handleDel!!")
 	c.wq.Done(obj)
 }
-*/
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+/*
 func (c *Controller) processNextItem() bool {
 	klog.Info("Inside processNextItem method")
 	obj, shutdown := c.wq.Get()
@@ -487,8 +485,8 @@ func (c *Controller) processNextItem() bool {
 		// Foo resource to be synced.
 		if err := c.syncHandler(key); err != nil {
 			// Put the item back on the workqueue to handle any transient errors.
-			//c.wq.AddRateLimited(key)
-			return nil//fmt.Errorf("error syncing '%s': %s, requeuing", key, err.Error())
+			c.wq.AddRateLimited(key)                                                             //
+			return fmt.Errorf("error syncing '%s': %s, requeuing", key, err.Error())             //
 		}
 		// Finally, if no error occurs we Forget this item so it does not
 		// get queued again until another change happens.
@@ -540,7 +538,7 @@ func (c *Controller) syncHandler(key string) error {
 
 	pList, err := c.kubeClient.CoreV1().Pods(cpod.Namespace).List(context.TODO(), listOptions)
 
-	klog.Info("In the syncHandler to sync pods",pList,"     ",cpod)
+	//klog.Info("In the syncHandler to sync pods",pList,"     ",cpod)
 	
 	if err := c.syncPods(cpod, pList); err != nil {
 		klog.Fatalf("Error while syncing the current vs desired state for customcluster %v: %v\n", cpod.Name, err.Error())
@@ -591,15 +589,15 @@ func (c *Controller) syncPods(cpod *v1alpha1.Customcluster, pList *corev1.PodLis
 	numDelete := 0
 
 	if newPods != currentPods || newMessage != currentMessage {
-		klog.Info("Entering the first block")
+		//klog.Info("Entering the first block")
 		if newMessage != currentMessage {
-			klog.Info("Entering the first-1 block")
+			//klog.Info("Entering the first-1 block")
 			ifDelete = true
 			ifCreate = true
 			numCreate = newPods             
 			numDelete = currentPods
 		} else {
-            klog.Info("Entering the first-2 block")
+            //klog.Info("Entering the first-2 block")
 			if currentPods < newPods {            
 				ifCreate = true
 				numCreate = newPods - currentPods           
@@ -611,8 +609,8 @@ func (c *Controller) syncPods(cpod *v1alpha1.Customcluster, pList *corev1.PodLis
 	}
 
 	if ifDelete {
-		klog.Info("Entering the second block")
-		klog.Info("pods are getting deletes ", numDelete)
+		//klog.Info("Entering the second block")
+		klog.Info("pods are getting deleted ", numDelete)
 		
 		for i:= 0; i < numDelete ; i++ {
 			err := c.kubeClient.CoreV1().Pods(cpod.Namespace).Delete(context.TODO(), pList.Items[i].Name, metav1.DeleteOptions{})
@@ -626,7 +624,7 @@ func (c *Controller) syncPods(cpod *v1alpha1.Customcluster, pList *corev1.PodLis
 	}
 
 	if ifCreate {
-		klog.Info("Entering the third block")
+		//klog.Info("Entering the third block")
 		klog.Info("pods are getting created ", numCreate)
 		for i := 0; i < numCreate ; i++ {
 			newcpod, err := c.kubeClient.CoreV1().Pods(cpod.Namespace).Create(context.TODO(), createPod(cpod), metav1.CreateOptions{})
@@ -644,10 +642,6 @@ func (c *Controller) syncPods(cpod *v1alpha1.Customcluster, pList *corev1.PodLis
 		}
 	}
 
-/*klog.Info("Creating a new pod ")
-newcpod, err := c.kubeClient.CoreV1().Pods(cpod.Namespace).Create(context.TODO(), newPod(cpod), metav1.CreateOptions{})
-klog.Info("New Pod created", newcpod)
-klog.Info("Error ",err)*/
 	return nil
 }
 
@@ -705,7 +699,7 @@ func (c *Controller) updateStatus(cp *v1alpha1.Customcluster, message string, ps
 	klog.Info("updating status")
 	_, err = c.cpodClient.SamplecontrollerV1alpha1().Customclusters(cp.Namespace).UpdateStatus(context.TODO(), cpCopy, metav1.UpdateOptions{})
 
-	klog.Info("updates status with error = ", err.Error())
+	//klog.Info("updates status with error = ", err.Error())                     //
 
 	return err
 
@@ -751,7 +745,6 @@ func createPod(app *v1alpha1.Customcluster) *corev1.Pod {
 	}
 } 
 
-
 func (c *Controller) handleAdd(obj interface{}) {
 	klog.Info("In the createHandler")
 	
@@ -768,4 +761,6 @@ func (c *Controller) handleDel(obj interface{}) {
 	klog.Info("In the deleteHandler")
 	
 	c.wq.Done(obj)
+	klog.Info("Deleted the pods")
 }
+*/

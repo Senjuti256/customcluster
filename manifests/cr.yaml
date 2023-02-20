@@ -3,5 +3,5 @@ kind: Customcluster
 metadata:
   name: cpod-f
 spec:
-  message: "Trying to create my own custom cluster resource"
+  message: "Welcome to this Custom Resource"
   count: 5
