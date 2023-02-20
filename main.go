@@ -54,7 +54,10 @@ func main() {
     
 	infoFactory:= kInfFac.NewSharedInformerFactory(klientset, 20*time.Second)
 	ch := make(chan struct{})
-	c := controller.NewController(kubeclient, klientset, infoFactory.Samplecontroller().V1alpha1().Customclusters())             //*
+	c := controller.NewController(kubeclient, klientset, infoFactory.Samplecontroller().V1alpha1().Customclusters())     
+	//*controller := NewController(kubeClient, exampleClient,
+		//kubeInformerFactory.Apps().V1().Deployments(),
+		//exampleInformerFactory.Samplecontroller().V1alpha1().Foos())
 	//c,err:= controller.NewController(klientset,10*time.Minute)
 	
     klog.Info("Starting channel and Run mthod of controller")
@@ -63,7 +66,3 @@ func main() {
 		log.Printf("error running controller %s\n", err.Error())
 	}
 }
-
-/*func NewController(kubeclient *kubernetes.Clientset, klientset *klient.Clientset, customclusterInformer v1alpha1.CustomclusterInformer) {
-	panic("unimplemented")
-}*/

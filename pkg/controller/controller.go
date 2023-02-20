@@ -65,6 +65,21 @@ type Controller struct {
 // returns a new customcluster controller
 func NewController(kubeClient kubernetes.Interface, cpodClient cClientSet.Interface, cpodInformer cInformer.CustomclusterInformer) *Controller {
 	klog.Info("NewController is called\n")
+
+    //CustomclusterInformer informers.CustomclusterInformer) *Controller {
+
+		// Create event broadcaster
+		// Add sample-controller types to the default Kubernetes Scheme so Events can be
+		// logged for sample-controller types.
+		/*utilruntime.Must(samplescheme.AddToScheme(scheme.Scheme))
+		klog.V(4).Info("Creating event broadcaster")
+		eventBroadcaster := record.NewBroadcaster()
+		eventBroadcaster.StartStructuredLogging(0)
+		eventBroadcaster.StartRecordingToSink(&typedcorev1.EventSinkImpl{Interface: kubeclientset.CoreV1().Events("")})
+		recorder := eventBroadcaster.NewRecorder(scheme.Scheme, corev1.EventSource{Component: controllerAgentName})
+	
+	*/
+	
 	c := &Controller{
 		kubeClient: kubeClient,
 		cpodClient: cpodClient,
@@ -74,6 +89,14 @@ func NewController(kubeClient kubernetes.Interface, cpodClient cClientSet.Interf
 	}
     klog.Info("NewController made\n")
     klog.Info("Setting up event handlers")
+
+	/*CustomclusterInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc: c.handleAdd,
+		UpdateFunc: func(old,new interface{}){
+			c.handleAdd(new)
+		},
+	})*/
+
 	// event handler when the custom resources are added/deleted/updated.
 	cpodInformer.Informer().AddEventHandler(
 		cache.ResourceEventHandlerFuncs{
@@ -568,7 +591,7 @@ func (c *Controller) syncPods(cpod *v1alpha1.Customcluster, pList *corev1.PodLis
 	newPods := cpod.Spec.Count
 	klog.Info("\n-------Count inside syncPods--------",cpod.Spec.Count)
 
-	currentPods := c.getCurrentPods(cpod)
+	currentPods := c.totalRunningPods(cpod)
 	klog.Info("\n-------Current cnt of running pods-------",currentPods)
 
 	newMessage := cpod.Spec.Message
@@ -639,7 +662,7 @@ func (c *Controller) waitForPods(cpod *v1alpha1.Customcluster, psList *corev1.Po
 	defer cancel()
 
 	return poll.Wait(ctx, func(ctx context.Context) (bool, error) {
-		currentPods := c.getCurrentPods(cpod)
+		currentPods := c.totalRunningPods(cpod)
 
 		if currentPods == int(cpod.Spec.Count) {                                   //& added
 			return true, nil
@@ -648,7 +671,7 @@ func (c *Controller) waitForPods(cpod *v1alpha1.Customcluster, psList *corev1.Po
 	})
 }
 
-func (c *Controller) getCurrentPods(cr *v1alpha1.Customcluster) int {
+func (c *Controller) totalRunningPods(cr *v1alpha1.Customcluster) int {
 	klog.Info("calculating total number of running pods")
 	labelSelector := metav1.LabelSelector{
 		MatchLabels: map[string]string{
@@ -676,7 +699,7 @@ func (c *Controller) getCurrentPods(cr *v1alpha1.Customcluster) int {
 func (c *Controller) updateStatus(cp *v1alpha1.Customcluster, message string, psList *corev1.PodList) error {
 
 	cpCopy, err := c.cpodClient.SamplecontrollerV1alpha1().Customclusters(cp.Namespace).Get(context.TODO(), cp.Name, metav1.GetOptions{})
-	currentPods := c.getCurrentPods(cp)
+	currentPods := c.totalRunningPods(cp)
 	if err != nil {
 		return err
 	}
@@ -736,7 +759,7 @@ func newPod(app *v1alpha1.Customcluster) *corev1.Pod {
 
 func (c *Controller) handleAdd(obj interface{}) {
 	klog.Info("In the createHandler")
-	klog.Info("\n--------------------------------------------------\n")
+	
 	var key string
 	var err error
 	if key, err = cache.MetaNamespaceKeyFunc(obj); err != nil {
@@ -748,6 +771,6 @@ func (c *Controller) handleAdd(obj interface{}) {
 
 func (c *Controller) handleDel(obj interface{}) {
 	klog.Info("In the deleteHandler")
-	klog.Info("\n--------------------------------------------------\n")
+	
 	c.wq.Done(obj)
 }
