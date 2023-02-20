@@ -522,7 +522,7 @@ func (c *Controller) syncHandler(key string) error {
 		// The Foo resource may no longer exist, in which case we stop
 		// processing.
 		if errors.IsNotFound(err) {
-			utilruntime.HandleError(fmt.Errorf("foo '%s' in work queue no longer exists", key))
+			utilruntime.HandleError(fmt.Errorf("customcluster '%s' in work queue no longer exists", key))
 			return nil
 		}
 
@@ -543,7 +543,7 @@ func (c *Controller) syncHandler(key string) error {
 	klog.Info("In the syncHandler to sync pods",pList,"     ",cpod)
 	
 	if err := c.syncPods(cpod, pList); err != nil {
-		klog.Fatalf("Error while syncing the current vs desired state for App %v: %v\n", cpod.Name, err.Error())
+		klog.Fatalf("Error while syncing the current vs desired state for customcluster %v: %v\n", cpod.Name, err.Error())
 		
 	}
 	
@@ -587,7 +587,7 @@ func (c *Controller) syncPods(cpod *v1alpha1.Customcluster, pList *corev1.PodLis
 	klog.Info("\n-------Message inside syncPods--------",cpod.Status.Message)
 
 	var ifDelete, ifCreate bool
-	numCreate := newPods             //int(*&newPods)
+	numCreate := newPods            
 	numDelete := 0
 
 	if newPods != currentPods || newMessage != currentMessage {
@@ -596,16 +596,16 @@ func (c *Controller) syncPods(cpod *v1alpha1.Customcluster, pList *corev1.PodLis
 			klog.Info("Entering the first-1 block")
 			ifDelete = true
 			ifCreate = true
-			numCreate = newPods             //&
+			numCreate = newPods             
 			numDelete = currentPods
 		} else {
             klog.Info("Entering the first-2 block")
-			if currentPods < newPods {            //&
+			if currentPods < newPods {            
 				ifCreate = true
-				numCreate = newPods - currentPods           //&
-			} else if currentPods > newPods {               //&
+				numCreate = newPods - currentPods           
+			} else if currentPods > newPods {               
 				ifDelete = true
-				numDelete = currentPods - newPods           //&
+				numDelete = currentPods - newPods           
 			}
 		}
 	}
@@ -659,7 +659,7 @@ func (c *Controller) waitForPods(cpod *v1alpha1.Customcluster, psList *corev1.Po
 	return poll.Wait(ctx, func(ctx context.Context) (bool, error) {
 		currentPods := c.totalRunningPods(cpod)
 
-		if currentPods == int(cpod.Spec.Count) {                                   //& added
+		if currentPods == int(cpod.Spec.Count) {                                   
 			return true, nil
 		}
 		return false, nil
