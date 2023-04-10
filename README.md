@@ -9,7 +9,7 @@ First I started a cluster in my local machine.
 
 Once the cluster is set up and is running fine : 
             
-               ```  kubectl apply -f manifests/crdefinition.yaml ```
+               ``` kubectl apply -f manifests/crdefinition.yaml
                
                ``` kubectl apply -f manifests/cr.yaml ```
                
