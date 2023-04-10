@@ -3,8 +3,8 @@ Steps to run the controller :=
 First I started a cluster in my local machine. 
                
                ``` KIND_EXPERIMENTAL_PROVIDER=podman ```
-               ``` minikube config set rootless true
-               minikube start - -driver=podman - -container-runtime=containerd```
+               ``` minikube config set rootless true ```
+               ``` minikube start - -driver=podman - -container-runtime=containerd ```
                
 
 Once the cluster is set up and is running fine : 
